@@ -2,6 +2,7 @@ package com.sonanh.urlshortener.links.web;
 
 import com.sonanh.urlshortener.links.usecase.CreateLinkUseCase;
 import com.sonanh.urlshortener.shared.config.AppProperties;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,7 +27,7 @@ class LinkController {
 	}
 
 	@PostMapping
-	ResponseEntity<LinkResponse> create(@RequestBody CreateLinkRequest request) {
+	ResponseEntity<LinkResponse> create(@Valid @RequestBody CreateLinkRequest request) {
 		// STEP 2: no authentication yet, so every Link is attributed to the seeded dev
 		// Owner. Replaced by the authenticated principal in step 4.
 		var command = new CreateLinkUseCase.Command(

@@ -1,6 +1,11 @@
 package com.sonanh.urlshortener.shared.config;
 
+import java.net.URI;
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -19,6 +24,7 @@ public record AppProperties(
 		String shortBaseUrl,
 		UUID devOwnerId,
 		String clickHashSalt,
+		List<String> extraBlockedHosts,
 		Security security
 ) {
 
@@ -30,5 +36,30 @@ public record AppProperties(
 				? shortBaseUrl.substring(0, shortBaseUrl.length() - 1)
 				: shortBaseUrl;
 		return base + "/" + code;
+	}
+
+	/**
+	 * Hostnames that may never be a Destination: our own, plus anything configured.
+	 *
+	 * <p>Derived from {@link #shortBaseUrl} rather than listed separately, so the two
+	 * cannot drift apart when the service moves to a real domain. In production the
+	 * short host resolves to Cloudflare's public addresses, so the private-address rule
+	 * would never catch a self-reference — only this list does.
+	 */
+	public Set<String> blockedHosts() {
+		Set<String> hosts = new HashSet<>();
+		if (extraBlockedHosts != null) {
+			extraBlockedHosts.forEach(host -> hosts.add(host.toLowerCase(Locale.ROOT)));
+		}
+		try {
+			String host = URI.create(shortBaseUrl).getHost();
+			if (host != null) {
+				hosts.add(host.toLowerCase(Locale.ROOT));
+			}
+		}
+		catch (IllegalArgumentException ex) {
+			throw new IllegalStateException("app.short-base-url is not a valid URI: " + shortBaseUrl, ex);
+		}
+		return Set.copyOf(hosts);
 	}
 }
