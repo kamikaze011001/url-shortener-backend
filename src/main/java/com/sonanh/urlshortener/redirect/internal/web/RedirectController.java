@@ -1,7 +1,7 @@
 package com.sonanh.urlshortener.redirect.internal.web;
 
 import com.sonanh.urlshortener.redirect.ResolveShortCodeUseCase;
-import com.sonanh.urlshortener.shared.ClientRequest;
+import com.sonanh.urlshortener.shared.http.ClientRequest;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Optional;
 import org.springframework.http.HttpHeaders;

@@ -1,5 +1,6 @@
-package com.sonanh.urlshortener.shared;
+package com.sonanh.urlshortener.shared.http;
 
+import com.sonanh.urlshortener.shared.config.AppProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

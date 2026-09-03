@@ -1,4 +1,4 @@
-package com.sonanh.urlshortener.shared;
+package com.sonanh.urlshortener.shared.config;
 
 import java.time.Clock;
 import org.springframework.context.annotation.Bean;

@@ -1,11 +1,11 @@
 package com.sonanh.urlshortener.links;
 
-import com.sonanh.urlshortener.links.internal.LinkRow;
-import com.sonanh.urlshortener.links.internal.LinkWriter;
+import com.sonanh.urlshortener.links.internal.store.LinkRow;
+import com.sonanh.urlshortener.links.internal.store.LinkWriter;
 import com.sonanh.urlshortener.links.internal.ShortCodeGenerator;
-import com.sonanh.urlshortener.shared.ApiException;
-import com.sonanh.urlshortener.shared.AppProperties;
-import com.sonanh.urlshortener.shared.ProblemCode;
+import com.sonanh.urlshortener.shared.error.ApiException;
+import com.sonanh.urlshortener.shared.config.AppProperties;
+import com.sonanh.urlshortener.shared.error.ProblemCode;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Instant;

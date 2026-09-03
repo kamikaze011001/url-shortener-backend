@@ -1,4 +1,4 @@
-package com.sonanh.urlshortener.shared;
+package com.sonanh.urlshortener.shared.error;
 
 /**
  * The only exception a use case should throw for an expected failure.

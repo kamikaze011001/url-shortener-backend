@@ -1,4 +1,4 @@
-package com.sonanh.urlshortener.shared;
+package com.sonanh.urlshortener.shared.error;
 
 import org.springframework.http.HttpStatus;
 

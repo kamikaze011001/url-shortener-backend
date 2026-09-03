@@ -1,4 +1,4 @@
-package com.sonanh.urlshortener.links.internal;
+package com.sonanh.urlshortener.links.internal.store;
 
 import com.sonanh.urlshortener.links.LinkLookup;
 import java.sql.Timestamp;

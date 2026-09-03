@@ -1,4 +1,4 @@
-package com.sonanh.urlshortener.links.internal;
+package com.sonanh.urlshortener.links.internal.store;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;

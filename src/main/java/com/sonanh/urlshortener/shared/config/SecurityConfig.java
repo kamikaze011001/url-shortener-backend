@@ -1,4 +1,4 @@
-package com.sonanh.urlshortener.shared;
+package com.sonanh.urlshortener.shared.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

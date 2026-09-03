@@ -1,6 +1,6 @@
 package com.sonanh.urlshortener.identity.internal;
 
-import com.sonanh.urlshortener.shared.AppProperties;
+import com.sonanh.urlshortener.shared.config.AppProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationRunner;

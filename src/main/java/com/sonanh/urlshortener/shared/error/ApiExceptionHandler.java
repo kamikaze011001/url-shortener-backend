@@ -1,4 +1,4 @@
-package com.sonanh.urlshortener.shared;
+package com.sonanh.urlshortener.shared.error;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

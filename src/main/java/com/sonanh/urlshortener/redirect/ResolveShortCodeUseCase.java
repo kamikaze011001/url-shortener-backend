@@ -13,6 +13,17 @@ import org.springframework.stereotype.Service;
  *
  * <p>Reaches {@code links} and {@code analytics} only through their ports, never
  * through their tables (ADR-0012).
+ *
+ * <p><b>This use case is deliberately not {@code @Transactional}, unlike every other
+ * one.</b> It performs a single indexed read and then hands off to a recorder that
+ * owns its own transaction — there is nothing to make atomic, and a transaction here
+ * would be actively harmful: recording a Click would join it, so a failed insert would
+ * mark it rollback-only and an analytics failure would reach back into the Redirect.
+ * A Redirect must never fail because analytics failed (02-nfr.md, ADR-0005).
+ *
+ * <p>{@link ClickRecorder} enforces its own isolation with REQUIRES_NEW, so the
+ * guarantee holds even if a future caller wraps this in a transaction. The annotation's
+ * absence documents the intent; the propagation setting is what makes it true.
  */
 @Service
 public class ResolveShortCodeUseCase {

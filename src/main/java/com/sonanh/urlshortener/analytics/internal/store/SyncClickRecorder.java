@@ -1,4 +1,4 @@
-package com.sonanh.urlshortener.analytics.internal;
+package com.sonanh.urlshortener.analytics.internal.store;
 
 import com.sonanh.urlshortener.analytics.ClickRecorder;
 import io.micrometer.core.instrument.Counter;
@@ -8,6 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -39,9 +41,18 @@ class SyncClickRecorder implements ClickRecorder {
 	private final TransactionTemplate tx;
 	private final Counter failures;
 
-	SyncClickRecorder(JdbcTemplate jdbc, TransactionTemplate tx, MeterRegistry meters) {
+	SyncClickRecorder(JdbcTemplate jdbc, PlatformTransactionManager txManager, MeterRegistry meters) {
 		this.jdbc = jdbc;
-		this.tx = tx;
+
+		// REQUIRES_NEW, not the default REQUIRED. Recording must be isolated from
+		// whatever transaction the caller is in — if it joined one, a failed insert
+		// would mark the caller's transaction rollback-only and an analytics failure
+		// would reach back into the Redirect. That is precisely what ADR-0005 forbids,
+		// and REQUIRED would make the guarantee depend on every caller staying
+		// non-transactional forever.
+		this.tx = new TransactionTemplate(txManager);
+		this.tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
 		this.failures = Counter.builder("urlshortener.clicks.record.failures")
 				.description("Clicks that could not be recorded. Redirects were still served.")
 				.register(meters);
