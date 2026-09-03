@@ -8,7 +8,6 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
-import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -29,7 +28,6 @@ class LocalRulesScreenerTest {
 	private static AppProperties properties() {
 		return new AppProperties(
 				"http://localhost:8080",
-				UUID.randomUUID(),
 				"test-salt",
 				List.of("s.example.com"),
 				new AppProperties.Security("secret", Duration.ofHours(1), false));

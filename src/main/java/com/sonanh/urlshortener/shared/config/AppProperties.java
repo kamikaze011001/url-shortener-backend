@@ -6,7 +6,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.UUID;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -15,14 +14,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *                     request. Deriving it works perfectly on localhost and then hands
  *                     out {@code http://localhost:8080/aB3xY9z} to real users on the
  *                     first deploy — the most common way a URL shortener breaks.
- * @param devOwnerId   TEMPORARY. Links require an Owner and authentication does not
- *                     exist yet, so the local profile seeds a fixed Owner and requests
- *                     are attributed to it. Deleted when auth lands.
  */
 @ConfigurationProperties(prefix = "app")
 public record AppProperties(
 		String shortBaseUrl,
-		UUID devOwnerId,
 		String clickHashSalt,
 		List<String> extraBlockedHosts,
 		Security security
