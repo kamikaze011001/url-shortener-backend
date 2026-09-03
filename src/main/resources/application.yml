@@ -35,6 +35,10 @@ spring:
       timeout: 200ms
 
 app:
+  # TEMPORARY: no auth yet, so Links are attributed to this seeded Owner (step 4
+  # replaces it with the authenticated principal).
+  dev-owner-id: 00000000-0000-0000-0000-000000000001
+
   # The single most important line in this file. If the short base URL is ever derived
   # from the request or hardcoded, the first production deploy hands out
   # http://localhost:8080/aB3xY9z to real users (03-architecture.md).
