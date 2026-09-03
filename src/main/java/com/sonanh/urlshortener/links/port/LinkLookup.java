@@ -1,4 +1,4 @@
-package com.sonanh.urlshortener.links;
+package com.sonanh.urlshortener.links.port;
 
 import java.util.Optional;
 

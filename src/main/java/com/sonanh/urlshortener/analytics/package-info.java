@@ -5,6 +5,6 @@
  * statistics they are asking for.
  */
 @org.springframework.modulith.ApplicationModule(
-		allowedDependencies = { "links", "shared" }
+		allowedDependencies = { "links::port", "shared" }
 )
 package com.sonanh.urlshortener.analytics;

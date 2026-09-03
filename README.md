@@ -44,26 +44,28 @@ Enforced by Spring Modulith, not merely described — see
 [ADR-0012](https://github.com/kamikaze011001/url-shortener-kb/blob/main/docs/adr/0012-modulith-verified-boundaries.md).
 
 ```
-shared     ← open module: errors, ids, clock, client IP resolution
+shared     ← open module: config, errors, client IP resolution
 identity   ← Owners, registration, login, session
-links      ← owns the Link and the links table; exposes LinkLookup
-redirect   ← the hot path; depends on links + analytics through ports only
-analytics  ← Clicks and statistics; exposes ClickRecorder (the ADR-0005 seam)
+links      ← owns the Link and the links table; exposes port/LinkLookup
+redirect   ← the hot path; reaches links and analytics through ports only
+analytics  ← Clicks and statistics; exposes port/ClickRecorder (the ADR-0005 seam)
 ```
 
-A module's root package is its API; its `internal` package is invisible to other
-modules. Reaching in fails the build:
+Each module splits by role: `port/` (the only cross-module surface), `usecase/`,
+`domain/`, `store/`, `web/`. Only `port/` is annotated `@NamedInterface`, so everything
+else is unreachable from other modules — and dependencies name the interface
+(`"links::port"`), not the module. Reaching past it fails the build:
 
 ```bash
 ./gradlew test --tests '*ModularityTests*'
 ```
 
-Verified to actually fail, not just to pass — a probe importing
-`links.internal` produces:
+Verified to actually fail, not just to pass — a probe in `redirect` importing
+`links.usecase.CreateLinkUseCase` produces:
 
 ```
 Module 'redirect' depends on non-exposed type
-com.sonanh.urlshortener.links.internal.SecretInternal within module 'links'!
+com.sonanh.urlshortener.links.usecase.CreateLinkUseCase within module 'links'!
 ```
 
 `ModularityTests` also writes C4 PlantUML diagrams to `build/spring-modulith-docs/`.
