@@ -1,0 +1,24 @@
+# Everything here exists because it differs from local, and each difference is a
+# "works on my machine" trap closed in advance (03-architecture.md § Deployment).
+
+app:
+  security:
+    # Behind Cloudflare the connection is HTTPS, so the session cookie gets Secure.
+    # Leaving this false in production would ship the session over plaintext; leaving
+    # it true locally would stop login from working at all.
+    cookie-secure: true
+
+server:
+  # Trust CF-Connecting-IP / X-Forwarded-* — but ONLY because this process is only
+  # reachable through the tunnel. If the port were exposed directly, anyone could
+  # spoof their IP and every per-IP rate limit would become decorative.
+  forward-headers-strategy: native
+
+logging:
+  level:
+    com.sonanh.urlshortener: INFO
+  structured:
+    # Native to Boot 4 — no logstash-logback-encoder dependency needed. Logs are
+    # queried by field, never by regular expression.
+    format:
+      console: ecs

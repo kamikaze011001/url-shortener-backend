@@ -1,0 +1,43 @@
+# Local dependencies. The application itself runs from Gradle or the IDE during
+# development; a backend service is added to this file at deploy time.
+#
+# Ports mirror the production topology (ADR-0006): :8080 is the short host's role,
+# :8081 is the app host's role. Same separation locally as in production, so deploying
+# is two DNS records and one environment variable — no code change.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: urlshortener-postgres
+    environment:
+      POSTGRES_DB: urlshortener
+      POSTGRES_USER: urlshortener
+      POSTGRES_PASSWORD: urlshortener
+    ports:
+      # 5433 on the host, not 5432: this machine already runs an unrelated Postgres.
+      # Container-side stays 5432, so nothing inside the compose network cares.
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U urlshortener -d urlshortener"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: urlshortener-redis
+    ports:
+      - "6379:6379"
+    # No persistence, deliberately. Redis holds a cache and rate-limit buckets and
+    # nothing else (ADR-0004); there is nothing in it worth recovering.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:
