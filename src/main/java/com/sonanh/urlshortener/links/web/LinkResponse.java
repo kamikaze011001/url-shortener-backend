@@ -1,6 +1,6 @@
 package com.sonanh.urlshortener.links.web;
 
-import com.sonanh.urlshortener.links.usecase.CreateLinkUseCase;
+import com.sonanh.urlshortener.links.usecase.LinkView;
 import java.time.Instant;
 
 /**
@@ -23,17 +23,17 @@ record LinkResponse(
 		Instant updatedAt
 ) {
 
-	static LinkResponse from(CreateLinkUseCase.Result result) {
+	static LinkResponse from(LinkView view) {
 		return new LinkResponse(
-				String.valueOf(result.id()),
-				result.code(),
-				result.shortUrl(),
-				result.destination(),
-				result.status(),
-				result.customAlias(),
-				result.clickCount(),
-				result.expiresAt(),
-				result.createdAt(),
-				result.updatedAt());
+				String.valueOf(view.id()),
+				view.code(),
+				view.shortUrl(),
+				view.destination(),
+				view.status(),
+				view.customAlias(),
+				view.clickCount(),
+				view.expiresAt(),
+				view.createdAt(),
+				view.updatedAt());
 	}
 }
