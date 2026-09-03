@@ -1,4 +1,4 @@
-package com.sonanh.urlshortener.analytics;
+package com.sonanh.urlshortener.analytics.port;
 
 import java.time.Instant;
 

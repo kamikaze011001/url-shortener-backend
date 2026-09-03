@@ -1,4 +1,4 @@
-package com.sonanh.urlshortener.links.internal;
+package com.sonanh.urlshortener.links.domain;
 
 import java.security.SecureRandom;
 import org.springframework.stereotype.Component;

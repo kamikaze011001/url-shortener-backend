@@ -1,4 +1,4 @@
-package com.sonanh.urlshortener.links.internal.web;
+package com.sonanh.urlshortener.links.web;
 
 import java.time.Instant;
 

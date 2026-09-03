@@ -20,51 +20,57 @@ Postgres is on **5433**: 5432 is taken by an unrelated container on this machine
 
 ## Where code goes
 
-Two axes. **Modules** divide by subject; **edges** divide by what a class talks to.
+Two axes. **Modules** divide by subject; **role packages** divide by what a class talks
+to. Every class has exactly one module and one role, so its path says what it is.
 
 ```
 com.sonanh.urlshortener
-├── shared/                     open module — every module may use it
+├── shared/                     open module — every module may use all of it
 │   ├── config/                 AppProperties, SecurityConfig, SharedConfig
 │   ├── error/                  ApiException, ProblemCode, ApiExceptionHandler
 │   └── http/                   ClientRequest
-├── identity/                   Owners, registration, login, session
 ├── links/                      owns the Link and the links table
-│   ├── CreateLinkUseCase       ← module API
-│   ├── LinkLookup              ← port other modules call
-│   └── internal/
-│       ├── ShortCodeGenerator  ← behaviour, no edge
-│       ├── store/              database edge
-│       └── web/                HTTP edge: controller + wire records
-├── redirect/                   the hot path
-└── analytics/                  Clicks and statistics
+│   ├── port/                   ← the ONLY thing other modules may touch
+│   ├── usecase/                business operations
+│   ├── domain/                 behaviour with no edge (ShortCodeGenerator)
+│   ├── store/                  database edge
+│   └── web/                    HTTP edge: controller + wire records
+├── redirect/                   the hot path — usecase/, web/
+├── analytics/                  Clicks and statistics — port/, usecase/, store/
+└── identity/                   Owners, registration, login, session
 ```
 
-**The edge rule**, which is what tells one class from another at a glance:
-
-| Package | Talks to | Holds |
+| Role package | Talks to | Holds |
 |---|---|---|
-| `internal/web/` | HTTP | Controllers, request and response records |
-| `internal/store/` | the database | Row mappers, writers, repositories, JPA entities |
-| `internal/` root | nothing external | Behaviour: generators, screeners, encoders |
-| module root | other modules | Use cases and ports, and nothing else |
+| `port/` | other modules | Interfaces other modules call, and their record types |
+| `usecase/` | — | One class per business operation |
+| `domain/` | nothing external | Generators, screeners, encoders |
+| `store/` | the database | Row mappers, writers, repositories, JPA entities |
+| `web/` | HTTP | Controllers, request and response records |
 
-A class in `store/` that formats an HTTP response, or a class in `web/` that writes SQL,
-is in the wrong package. That is the whole test.
+A class in `store/` that formats an HTTP response, or one in `web/` that writes SQL, is
+in the wrong package. That is the whole test.
 
-### Module rules, enforced by the build
+### The boundary is enforced, not agreed
 
-`ModularityTests` fails the build when a module reaches into another's `internal`.
-Declared dependencies live in each `package-info.java`.
+Modulith exposes a module's **base package** and treats sub-packages as internal, unless
+a sub-package is annotated `@NamedInterface`. Only `port/` carries that annotation, so
+**everything else in a module is genuinely unreachable from outside it** — moving a type
+into or out of `port/` changes what other modules can compile against.
 
-A module's root package is its API. Everything under `internal/` is private to it, even
-though Java's `public` is needed for the module's own root package to use it — Modulith
-enforces the boundary that Java cannot express.
+Dependencies name the interface, not the module:
 
-**Cross-module access goes through a port**, never through another module's table.
-`redirect` calls `links.LinkLookup` and `analytics.ClickRecorder`. Two modules querying
-one table is a real coupling that the boundary test cannot see, which is exactly why it
-is forbidden by convention instead.
+```java
+@ApplicationModule(allowedDependencies = { "links::port", "analytics::port", "shared" })
+```
+
+`"links"` would let `redirect` call `CreateLinkUseCase`; `"links::port"` does not.
+Verified — a class in `redirect` referencing `links.usecase.CreateLinkUseCase` fails
+`ModularityTests` with *"depends on non-exposed type"*.
+
+**Cross-module access goes through a port**, never through another module's table. Two
+modules querying one table is a real coupling the boundary test cannot see, which is why
+it is forbidden by convention rather than caught by the build.
 
 ## Use cases, not services
 

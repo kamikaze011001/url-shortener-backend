@@ -1,6 +1,6 @@
-package com.sonanh.urlshortener.redirect.internal.web;
+package com.sonanh.urlshortener.redirect.web;
 
-import com.sonanh.urlshortener.redirect.ResolveShortCodeUseCase;
+import com.sonanh.urlshortener.redirect.usecase.ResolveShortCodeUseCase;
 import com.sonanh.urlshortener.shared.http.ClientRequest;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Optional;

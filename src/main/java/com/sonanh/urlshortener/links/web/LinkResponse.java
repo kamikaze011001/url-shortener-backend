@@ -1,6 +1,6 @@
-package com.sonanh.urlshortener.links.internal.web;
+package com.sonanh.urlshortener.links.web;
 
-import com.sonanh.urlshortener.links.CreateLinkUseCase;
+import com.sonanh.urlshortener.links.usecase.CreateLinkUseCase;
 import java.time.Instant;
 
 /**

@@ -1,6 +1,6 @@
-package com.sonanh.urlshortener.analytics.internal.store;
+package com.sonanh.urlshortener.analytics.store;
 
-import com.sonanh.urlshortener.analytics.ClickRecorder;
+import com.sonanh.urlshortener.analytics.port.ClickRecorder;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.sql.Timestamp;

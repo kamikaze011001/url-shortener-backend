@@ -1,7 +1,7 @@
-package com.sonanh.urlshortener.redirect;
+package com.sonanh.urlshortener.redirect.usecase;
 
-import com.sonanh.urlshortener.analytics.ClickRecorder;
-import com.sonanh.urlshortener.links.LinkLookup;
+import com.sonanh.urlshortener.analytics.port.ClickRecorder;
+import com.sonanh.urlshortener.links.port.LinkLookup;
 import java.time.Clock;
 import java.util.Optional;
 import org.slf4j.Logger;

@@ -1,4 +1,4 @@
-package com.sonanh.urlshortener.identity.internal;
+package com.sonanh.urlshortener.identity.store;
 
 import com.sonanh.urlshortener.shared.config.AppProperties;
 import org.slf4j.Logger;
