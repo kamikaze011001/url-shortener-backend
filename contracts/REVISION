@@ -1,0 +1,10 @@
+Vendored from url-shortener-kb
+repo:     https://github.com/kamikaze011001/url-shortener-kb
+revision: f7e3a515fe27d374d0ef1563e3678d67eee3584c
+branch:   main
+vendored: 2026-09-03T17:23:42Z
+
+This file records WHICH merged contract revision the code implements.
+Re-vendor by copying docs/openapi.yaml from that repo and updating the SHA.
+A local or unmerged contract commit is never sufficient authorization to
+implement against it.
