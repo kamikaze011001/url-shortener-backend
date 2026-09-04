@@ -1,0 +1,59 @@
+[Unit]
+Description=URL Shortener (container)
+Documentation=https://github.com/kamikaze011001/url-shortener-kb
+After=network-online.target docker.service postgresql.service redis-urlshortener.service
+Wants=network-online.target
+Requires=docker.service redis-urlshortener.service
+
+[Service]
+Type=exec
+
+# A leftover container from a hard kill would make the next start fail on a name clash.
+# The leading `-` lets this fail harmlessly when there is nothing to remove.
+ExecStartPre=-/usr/bin/docker rm -f url-shortener
+
+# --network host, and the reason is the isolation requirement rather than convenience.
+# Postgres and Redis are bound to 127.0.0.1 on this host. The alternatives were to
+# rebind them onto the docker bridge — which would expose them to every container on the
+# box, weakening exactly what they were isolated for — or to mount their Unix sockets,
+# which pgjdbc cannot use without a third-party driver. Host networking keeps the
+# databases loopback-only and unchanged.
+#
+# What it gives up is the container's network namespace, and that makes SERVER_ADDRESS
+# below load-bearing rather than decorative. With host networking the container binds
+# host interfaces directly, so without it the application listens on *:8090 and is
+# reachable from the LAN — bypassing Caddy entirely and reaching a process that trusts
+# `CF-Connecting-IP` without verifying it, which turns every per-IP limit in FR-6 into
+# decoration for anyone on the network.
+#
+# It is passed with --env and not left in .env deliberately: it is a property of *this*
+# deployment shape, and it belongs beside the --network flag that makes it necessary.
+# It previously lived in the jar unit's Environment= line, was missed when that unit was
+# replaced by this one, and the application spent an hour listening on every interface
+# with only a firewall rule between it and the LAN. Moving it next to its reason is what
+# stops that happening on the next rewrite.
+#
+# --read-only with a tmpfs for /tmp: the application writes nothing to disk. Logs go to
+# the journal through Docker's stdout, and Tomcat's scratch space lives in /tmp.
+ExecStart=/usr/bin/docker run \
+    --rm \
+    --name url-shortener \
+    --network host \
+    --env-file /opt/url-shortener/.env \
+    --env SERVER_ADDRESS=127.0.0.1 \
+    --memory 2g \
+    --pids-limit 512 \
+    --read-only \
+    --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+    --security-opt no-new-privileges \
+    --log-driver journald \
+    --log-opt tag=url-shortener \
+    url-shortener:current
+
+ExecStop=/usr/bin/docker stop --timeout 20 url-shortener
+
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

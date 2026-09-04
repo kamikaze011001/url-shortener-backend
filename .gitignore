@@ -35,3 +35,10 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# Host-specific deployment parameters. Never committed — see deploy/deploy.env.example.
+deploy/deploy.env
+
+# Python bytecode from running the e2e suite.
+__pycache__/
+*.pyc

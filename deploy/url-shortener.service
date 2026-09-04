@@ -1,0 +1,59 @@
+[Unit]
+Description=URL Shortener
+Documentation=https://github.com/kamikaze011001/url-shortener-kb
+After=network-online.target postgresql.service redis-urlshortener.service
+Wants=network-online.target
+Requires=redis-urlshortener.service
+
+[Service]
+Type=simple
+# `url-shortener`, with the hyphen: provision.sh derives it from the application name.
+# The Postgres role, database and schema are `urlshortener` WITHOUT one, because a
+# hyphen in a Postgres identifier has to be double-quoted at every use site. Two names
+# for one thing is a wart; naming them differently on purpose beats discovering the
+# difference from `status=217/USER`, which is what a mismatch here reports.
+User=url-shortener
+Group=url-shortener
+WorkingDirectory=/opt/url-shortener
+
+# Secrets live here and nowhere else: 0600, owned by the service user, never in the
+# unit file (which is world-readable) and never on the command line (which is visible
+# in `ps` to every user on the box).
+EnvironmentFile=/opt/url-shortener/.env
+
+# The JVM is pinned by absolute path rather than taken from `java` on PATH. This host
+# already had Java 17 for other things, and the system default is not ours to change.
+ExecStart=/usr/lib/jvm/java-21-openjdk-amd64/bin/java \
+    -XX:MaxRAMPercentage=50 \
+    -XX:+ExitOnOutOfMemoryError \
+    -jar /opt/url-shortener/app.jar
+
+# 127.0.0.1 only, and this is a security control rather than a preference: ClientRequest
+# trusts `CF-Connecting-IP` on the stated grounds that this process is reachable only
+# through the tunnel. Bound to a public interface, that header becomes spoofable and
+# every per-IP rate limit in FR-6 turns decorative.
+Environment=SERVER_ADDRESS=127.0.0.1
+
+Restart=on-failure
+RestartSec=5s
+
+# A demo box shared with a Telegram bot and a CI runner. These keep a bad day here from
+# becoming a bad day for them.
+MemoryMax=2G
+TasksMax=512
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/url-shortener/logs
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=url-shortener
+
+[Install]
+WantedBy=multi-user.target

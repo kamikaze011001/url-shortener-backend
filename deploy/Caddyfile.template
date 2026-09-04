@@ -1,0 +1,82 @@
+# A template: `__PLACEHOLDER__` values are substituted at deploy time from deploy.env,
+# so no hostname or port belonging to a particular deployment is stored in this repo.
+#
+# Caddy sits between the tunnel and the application, and does two jobs: it serves the
+# built SPA, and it splits one process across the two hostnames ADR-0006 asks for.
+#
+# Both hostnames arrive on the same port. cloudflared preserves the original `Host`
+# header, so Caddy tells them apart from that rather than from a port number.
+#
+# Written against Caddy 2.6, which is what Ubuntu 24.04 ships. Nothing here uses the
+# global `trusted_proxies` option: it changes how Caddy derives a client IP for its own
+# matchers and logs, and this system does not use that — the application reads
+# `CF-Connecting-IP` itself, and Caddy forwards it untouched like any other header.
+
+{
+	# The tunnel terminates TLS at Cloudflare's edge, so this hop is plaintext on
+	# loopback. Without this, Caddy would try to provision its own certificate for a
+	# hostname it cannot answer an ACME challenge for, and fail on every start.
+	auto_https off
+	admin off
+}
+
+# ── the dashboard ────────────────────────────────────────────────────────────
+http://__APP_HOSTNAME__:__CADDY_PORT__ {
+	# Loopback only. cloudflared connects from this host, so nothing legitimate is lost —
+	# and the alternative is relying on ufw, which is a different team's decision and one
+	# `ufw allow 8088` away from silently exposing the app. The application trusts
+	# `CF-Connecting-IP` on the stated grounds that it is reachable only through the
+	# tunnel; that promise has to be kept by the bind, not by a firewall rule elsewhere.
+	bind 127.0.0.1 ::1
+
+	log {
+		output file /var/log/caddy/app.log
+	}
+
+	# Hashed asset filenames are immutable; index.html must never be, or a deploy leaves
+	# browsers holding a stale shell that references assets which no longer exist.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	header /index.html Cache-Control "no-cache"
+
+	# `/api/*`, never a bare `/api` prefix. A prefix also swallows every path that
+	# merely *begins* with those characters, and this application has a client-side
+	# route called `/api-keys` — which is exactly how it broke in the Vite dev proxy
+	# before it was anchored. The trailing slash is the whole fix.
+	handle /api/* {
+		reverse_proxy 127.0.0.1:__APP_PORT__
+	}
+
+	# The SPA. `try_files` is what makes client-side routing work: a deep link such as
+	# /links/24 is not a file on disk, and without the fallback it would 404 on refresh
+	# even though the application can render it perfectly well.
+	handle {
+		root * /opt/url-shortener/frontend
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# ── the short host ───────────────────────────────────────────────────────────
+# The entire root namespace here belongs to Short Codes (ADR-0006), which is why it is a
+# separate hostname rather than a path on the dashboard: /links would otherwise be both
+# a page and a possible Short Code.
+http://__SHORT_HOSTNAME__:__CADDY_PORT__ {
+	bind 127.0.0.1 ::1
+
+	log {
+		output file /var/log/caddy/short.log
+	}
+
+	# FR-3.5 — the root serves a minimal landing page and nothing else does. Served by
+	# Caddy rather than the application because a static page has no reason to occupy a
+	# controller, and because it keeps answering while the application restarts.
+	handle / {
+		root * /opt/url-shortener/short-root
+		file_server
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:__APP_PORT__
+	}
+}

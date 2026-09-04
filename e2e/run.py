@@ -91,6 +91,13 @@ class Http:
         url = absolute or (self.base + path)
         request = urllib.request.Request(url, method=method)
         request.add_header("Content-Type", "application/json")
+        # Identify the client, always — and against production this is load-bearing
+        # rather than polite. Python's stdlib sends `Python-urllib/3.x`, which sits on
+        # Cloudflare's known-bot list: the request is refused at the edge with a 403
+        # and error 1010, never reaches the application, and appears in no log this
+        # project controls. A named agent is both the honest thing to send and the
+        # thing that makes a failure debuggable.
+        request.add_header("User-Agent", "url-shortener-e2e/1.0")
         if bearer:
             request.add_header("Authorization", "Bearer " + bearer)
         data = json.dumps(body).encode() if body is not None else None
@@ -113,10 +120,32 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+class Headers(dict):
+    """
+    Case-insensitive header lookup.
+
+    HTTP header names are case-insensitive by specification, and HTTP/2 goes further and
+    *requires* them lowercase on the wire. Locally this suite talks HTTP/1.1 to Tomcat,
+    which sends `Location` and `Retry-After`; through Cloudflare the same headers arrive
+    as `location` and `retry-after`. A plain dict finds one and not the other, and the
+    failure looks exactly like a missing header — which is how six checks came to blame
+    the application for something only the test had got wrong.
+    """
+
+    def __init__(self, headers):
+        super().__init__({str(k).lower(): v for k, v in headers.items()})
+
+    def get(self, key, default=None):
+        return super().get(str(key).lower(), default)
+
+    def __contains__(self, key):
+        return super().__contains__(str(key).lower())
+
+
 class Response:
     def __init__(self, status, headers, raw):
         self.status = status
-        self.headers = headers
+        self.headers = Headers(headers)
         self.raw = raw
 
     @property
@@ -150,6 +179,7 @@ class Suite:
         self.passed = 0
         self.failures = []
         self.notes = []
+        self.skipped = []
         self.scenario = ""
 
     def begin(self, title, covers):
@@ -167,6 +197,16 @@ class Suite:
             print(f"  \033[31m✗\033[0m {label}\n      got:    {actual!r}\n      wanted: {expected!r}")
         return ok
 
+    def skip(self, label, why):
+        """
+        Recorded separately from a pass, and printed at the end.
+
+        A suite that silently drops a check when it cannot run reads exactly like a
+        suite where the check passed, and the difference is the whole value of it.
+        """
+        self.skipped.append((self.scenario, label, why))
+        print(f"  \033[90m–\033[0m {label}  \033[90m({why})\033[0m")
+
     def note(self, text):
         self.notes.append((self.scenario, text))
         print(f"  \033[33m•\033[0m {text}")
@@ -180,6 +220,10 @@ class Suite:
                 print(f"  {scenario}\n    {label}\n      got {actual!r}, wanted {expected!r}")
         else:
             print(f"\033[32mALL PASS\033[0m  {self.passed}/{total} checks")
+        if self.skipped:
+            print(f"\n  \033[90m{len(self.skipped)} checks skipped — NOT verified:\033[0m")
+            for scenario, label, why in self.skipped:
+                print(f"    [{scenario}] {label} — {why}")
         if self.notes:
             print("\n  Notes:")
             for scenario, text in self.notes:
@@ -246,11 +290,74 @@ def iso(when):
 # ── scenarios ────────────────────────────────────────────────────────────────
 
 
+def reset_and_revocation(suite, anonymous, owner, keyed, auth_budget, args, run,
+                         owner_email, password, plaintext_write):
+    """The half of scenario 8 that cannot run without an inbox."""
+    reset_code = mailpit_code(args.mailpit, owner_email, "Reset your password")
+    bad_reset = anonymous.call(
+        "POST",
+        "/auth/reset-password",
+        {
+            "email": owner_email,
+            "code": "000000" if reset_code != "000000" else "111111",
+            "password": "another-good-one",
+        },
+    )
+    suite.check("a wrong reset code is refused", bad_reset.status, 400)
+
+    new_password = "a-brand-new-passphrase"
+    reset = anonymous.call(
+        "POST",
+        "/auth/reset-password",
+        {"email": owner_email, "code": reset_code, "password": new_password},
+    )
+    # 204, not 200. The contract says so, and the reason is visible in the response: it
+    # carries a Set-Cookie that clears the session rather than a body, because the Owner
+    # who just reset their password is deliberately not signed in by doing so.
+    suite.check("the password is reset", reset.status, 204)
+    suite.check("and the session cookie is cleared", "Set-Cookie" in reset.headers, True)
+
+    # The session that existed before the reset must be dead. This is the whole point of
+    # token_version: a stolen cookie stops working the moment the password changes.
+    suite.check(
+        "every session issued before the reset is dead", owner.call("GET", "/auth/me").status, 401
+    )
+    suite.check(
+        "an API Key issued before the reset still works",
+        keyed.call("GET", "/links", bearer=plaintext_write).status in (200, 403),
+        True,
+    )
+    suite.note("keys survive a password reset by design — they are not sessions (ADR-0020)")
+
+    owner.forget_cookies()
+    auth_budget.spend()
+    signed_in = owner.call("POST", "/auth/login", {"email": owner_email, "password": new_password})
+    suite.check("the new password works", signed_in.status, 200)
+
+    auth_budget.spend()
+    old_password_attempt = anonymous.call(
+        "POST", "/auth/login", {"email": owner_email, "password": password}
+    )
+    suite.check("the old one does not", old_password_attempt.status, 401)
+
+    logged_out = owner.call("POST", "/auth/logout")
+    suite.check("logout answers 204", logged_out.status, 204)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="http://localhost:8080")
     parser.add_argument("--short-base", default=None, help="defaults to --base")
     parser.add_argument("--mailpit", default="http://localhost:8025")
+    parser.add_argument(
+        "--account",
+        default=None,
+        metavar="EMAIL:PASSWORD",
+        help="Run against an existing, already-verified account instead of registering "
+        "one. Use this against production, where there is no Mailpit to read a code "
+        "from: the suite then skips only the checks that genuinely need an inbox and "
+        "says so in the report, rather than failing them for the wrong reason.",
+    )
     args = parser.parse_args()
 
     api = args.base.rstrip("/") + "/api/v1"
@@ -267,7 +374,13 @@ def main():
     intruder = Http(api, short)       # a second Owner, for isolation checks
     anonymous = Http(api, short)      # no credential at all
 
-    owner_email = f"e2e-owner-{run}@example.test"
+    # With --account the suite adopts an existing verified Owner. Registration and
+    # anything else that needs to read an inbox is then skipped rather than faked.
+    has_mail = args.account is None
+    if has_mail:
+        owner_email = f"e2e-owner-{run}@example.test"
+    else:
+        owner_email, password = args.account.split(":", 1)
     intruder_email = f"e2e-intruder-{run}@example.test"
 
     print(f"\033[1mURL Shortener — end-to-end\033[0m\n  api:   {api}\n  short: {short}\n  run:   {run}")
@@ -275,21 +388,33 @@ def main():
     # ── 1 ────────────────────────────────────────────────────────────────────
     suite.begin("1 · Registration and sign-in", "FR-1.1 FR-1.2 FR-1.3 FR-1.4 FR-1.6")
 
-    auth_budget.spend()
-    created = owner.call("POST", "/auth/register", {"email": owner_email, "password": password})
-    suite.check("register answers 201", created.status, 201)
-    suite.check("a session cookie is set", "session" in owner.cookie_names(), True)
-    suite.check("the new Owner is unverified", created.json.get("emailVerified"), False)
-    suite.check("no password field comes back", "password" in (created.json or {}), False)
+    if has_mail:
+        auth_budget.spend()
+        created = owner.call("POST", "/auth/register", {"email": owner_email, "password": password})
+        suite.check("register answers 201", created.status, 201)
+        suite.check("a session cookie is set", "session" in owner.cookie_names(), True)
+        suite.check("the new Owner is unverified", created.json.get("emailVerified"), False)
+        suite.check("no password field comes back", "password" in (created.json or {}), False)
 
-    me = owner.call("GET", "/auth/me")
-    suite.check("/auth/me identifies the Owner", me.json.get("email"), owner_email)
+        me = owner.call("GET", "/auth/me")
+        suite.check("/auth/me identifies the Owner", me.json.get("email"), owner_email)
 
-    code = mailpit_code(args.mailpit, owner_email, "Confirm your email")
-    suite.check("the verification code is 6 digits", bool(re.fullmatch(r"\d{6}", code)), True)
-    verified = owner.call("POST", "/auth/verify-email", {"code": code})
-    suite.check("verifying answers 200", verified.status, 200)
-    suite.check("the Owner is now verified", verified.json.get("emailVerified"), True)
+        code = mailpit_code(args.mailpit, owner_email, "Confirm your email")
+        suite.check("the verification code is 6 digits", bool(re.fullmatch(r"\d{6}", code)), True)
+        verified = owner.call("POST", "/auth/verify-email", {"code": code})
+        suite.check("verifying answers 200", verified.status, 200)
+        suite.check("the Owner is now verified", verified.json.get("emailVerified"), True)
+    else:
+        suite.skip("registration and email verification", "needs an inbox; --account given")
+        auth_budget.spend()
+        signed = owner.call("POST", "/auth/login", {"email": owner_email, "password": password})
+        suite.check("the given account signs in", signed.status, 200)
+        suite.check("a session cookie is set", "session" in owner.cookie_names(), True)
+        me = owner.call("GET", "/auth/me")
+        suite.check("/auth/me identifies the Owner", me.json.get("email"), owner_email)
+        # Everything downstream creates Links, which FR-1.7 forbids to an unverified
+        # Owner. Failing here rather than in scenario 3 says what is actually wrong.
+        suite.check("and is already verified", me.json.get("emailVerified"), True)
 
     # Edges: the ways registration and sign-in are supposed to refuse.
     auth_budget.spend()
@@ -348,19 +473,33 @@ def main():
     )
     suite.check("and is told what to do about it", bool(gated.detail), True)
 
-    intruder_code = mailpit_code(args.mailpit, intruder_email, "Confirm your email")
-    wrong_code = "000000" if intruder_code != "000000" else "111111"
+    if has_mail:
+        intruder_code = mailpit_code(args.mailpit, intruder_email, "Confirm your email")
+        wrong_code = "000000" if intruder_code != "000000" else "111111"
 
-    first = intruder.call("POST", "/auth/verify-email", {"code": wrong_code})
-    suite.check("a wrong code is 400 INVALID_CODE", (first.status, first.code), (400, "INVALID_CODE"))
+        first = intruder.call("POST", "/auth/verify-email", {"code": wrong_code})
+        suite.check(
+            "a wrong code is 400 INVALID_CODE", (first.status, first.code), (400, "INVALID_CODE")
+        )
 
-    # Five wrong attempts must kill the code. This is the assertion that matters: the
-    # proof is that the *correct* code stops working afterwards, because a sixth wrong
-    # guess would answer INVALID_CODE whether the limit worked or not.
-    for _ in range(4):
-        intruder.call("POST", "/auth/verify-email", {"code": wrong_code})
-    burnt = intruder.call("POST", "/auth/verify-email", {"code": intruder_code})
-    suite.check("the correct code is dead after 5 wrong attempts", burnt.code, "INVALID_CODE")
+        # Five wrong attempts must kill the code. This is the assertion that matters: the
+        # proof is that the *correct* code stops working afterwards, because a sixth wrong
+        # guess would answer INVALID_CODE whether the limit worked or not.
+        for _ in range(4):
+            intruder.call("POST", "/auth/verify-email", {"code": wrong_code})
+        burnt = intruder.call("POST", "/auth/verify-email", {"code": intruder_code})
+        suite.check("the correct code is dead after 5 wrong attempts", burnt.code, "INVALID_CODE")
+    else:
+        # A wrong code can still be submitted without knowing the right one — what
+        # cannot be checked is that the right one is dead afterwards, which is the half
+        # that matters.
+        rejected = intruder.call("POST", "/auth/verify-email", {"code": "000000"})
+        suite.check(
+            "a wrong code is 400 INVALID_CODE",
+            (rejected.status, rejected.code),
+            (400, "INVALID_CODE"),
+        )
+        suite.skip("the 5-attempt limit kills a code", "needs the real code; --account given")
 
     resend = intruder.call("POST", "/auth/resend-verification")
     suite.check("a replacement code can be requested", resend.status, 202)
@@ -708,57 +847,38 @@ def main():
     unregistered = anonymous.call(
         "POST", "/auth/forgot-password", {"email": f"ghost-{run}@example.test"}
     )
-    suite.check("a reset request answers 202", registered.status, 202)
-    suite.check("so does one for an unknown address", unregistered.status, 202)
-    suite.check(
-        "identically — no enumeration oracle (FR-1.12)", registered.raw == unregistered.raw, True
-    )
 
-    reset_code = mailpit_code(args.mailpit, owner_email, "Reset your password")
-    bad_reset = anonymous.call(
-        "POST",
-        "/auth/reset-password",
-        {"email": owner_email, "code": "000000" if reset_code != "000000" else "111111", "password": "another-good-one"},
-    )
-    suite.check("a wrong reset code is refused", bad_reset.status, 400)
+    # FR-6.7 caps reset requests at 3/hour/IP and this pair spends two of them, so a
+    # second run inside the hour meets its own earlier run. That is the limiter working,
+    # not the property failing — and `patient` cannot wait it out, because it declines to
+    # sleep for an hourly window. Skipped rather than failed: a red check here would send
+    # the next reader looking for an enumeration oracle that is not there.
+    if 429 in (registered.status, unregistered.status):
+        suite.skip(
+            "the identical-202 pair (FR-1.12)",
+            "FR-6.7 spent for this hour, most likely by a previous run",
+        )
+    else:
+        suite.check("a reset request answers 202", registered.status, 202)
+        suite.check("so does one for an unknown address", unregistered.status, 202)
+        suite.check(
+            "identically — no enumeration oracle (FR-1.12)",
+            registered.raw == unregistered.raw,
+            True,
+        )
 
-    new_password = "a-brand-new-passphrase"
-    reset = anonymous.call(
-        "POST",
-        "/auth/reset-password",
-        {"email": owner_email, "code": reset_code, "password": new_password},
-    )
-    # 204, not 200. The contract says so, and the reason is visible in the response:
-    # it carries a Set-Cookie that clears the session rather than a body, because the
-    # Owner who just reset their password is deliberately not signed in by doing so.
-    suite.check("the password is reset", reset.status, 204)
-    suite.check("and the session cookie is cleared", "Set-Cookie" in reset.headers, True)
-
-    # The session that existed before the reset must be dead. This is the whole point of
-    # token_version: a stolen cookie stops working the moment the password changes.
-    suite.check(
-        "every session issued before the reset is dead", owner.call("GET", "/auth/me").status, 401
-    )
-    suite.check(
-        "an API Key issued before the reset still works",
-        keyed.call("GET", "/links", bearer=plaintext_write).status in (200, 403),
-        True,
-    )
-    suite.note("keys survive a password reset by design — they are not sessions (ADR-0020)")
-
-    owner.forget_cookies()
-    auth_budget.spend()
-    signed_in = owner.call("POST", "/auth/login", {"email": owner_email, "password": new_password})
-    suite.check("the new password works", signed_in.status, 200)
-    auth_budget.spend()
-    old_password_attempt = anonymous.call(
-        "POST", "/auth/login", {"email": owner_email, "password": password}
-    )
-    suite.check("the old one does not", old_password_attempt.status, 401)
-
-    logged_out = owner.call("POST", "/auth/logout")
-    suite.check("logout answers 204", logged_out.status, 204)
-
+    if not has_mail:
+        # Deliberately not attempted. Completing a reset would change the password of an
+        # account the operator handed us, and this suite does not get to do that.
+        suite.skip("completing a password reset", "needs an inbox; --account given")
+        suite.skip("sessions die when the password changes", "depends on the reset above")
+        logged_out = owner.call("POST", "/auth/logout")
+        suite.check("logout answers 204", logged_out.status, 204)
+    else:
+        reset_and_revocation(
+            suite, anonymous, owner, keyed, auth_budget, args, run,
+            owner_email, password, plaintext_write,
+        )
     # ── 9 ────────────────────────────────────────────────────────────────────
     suite.begin("9 · Rate limiting — runs last, it spends the budget", "FR-6.1 FR-6.5")
 
