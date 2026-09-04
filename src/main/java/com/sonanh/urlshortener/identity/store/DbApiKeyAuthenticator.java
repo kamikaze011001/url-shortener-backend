@@ -42,10 +42,13 @@ class DbApiKeyAuthenticator implements ApiKeyAuthenticator {
 			return Optional.empty();
 		}
 
-		return keys.findByHash(ApiKeys.hash(presentedKey))
+		// The clock is passed in rather than left to the database, so expiry is decided
+		// by the same Clock every test and every other use case reads.
+		return keys.findByHash(ApiKeys.hash(presentedKey), clock.instant())
 				.map(row -> {
 					touchIfStale(row);
-					return new Authenticated(row.ownerId(), row.emailVerified(), row.keyId());
+					return new Authenticated(row.ownerId(), row.emailVerified(), row.keyId(),
+							row.scopes());
 				});
 	}
 

@@ -2,6 +2,7 @@ package com.sonanh.urlshortener.identity.web;
 
 import com.sonanh.urlshortener.identity.usecase.ManageApiKeysUseCase;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Wire shape, fixed by {@code contracts/openapi.yaml}.
@@ -12,11 +13,13 @@ import java.time.Instant;
  * list endpoint could accidentally start returning it.
  */
 record ApiKeyCreatedResponse(String id, String name, String keyPrefix, String last4,
-		Instant lastUsedAt, Instant createdAt, String key) {
+		List<String> scopes, Instant expiresAt, Instant lastUsedAt, Instant createdAt,
+		String key) {
 
 	static ApiKeyCreatedResponse from(ManageApiKeysUseCase.Created created) {
 		var k = created.key();
 		return new ApiKeyCreatedResponse(k.id(), k.name(), k.keyPrefix(), k.last4(),
-				k.lastUsedAt(), k.createdAt(), created.plaintext());
+				ApiKeyResponse.wireNames(k.scopes()), k.expiresAt(), k.lastUsedAt(),
+				k.createdAt(), created.plaintext());
 	}
 }

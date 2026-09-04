@@ -61,6 +61,30 @@ public class CurrentOwner {
 				"API keys cannot manage API keys. Sign in to do that.");
 	}
 
+	/**
+	 * Refuses a request whose credential was not granted this scope (FR-8.10).
+	 *
+	 * <p>At the edge, for the same reason as the two checks above: this is a fact about
+	 * the caller, in the same category as "is this request authenticated at all". A use
+	 * case that reached into the security context to find out would be an edge concern
+	 * wearing business clothing.
+	 *
+	 * <p>A session never fails this — it carries every scope — so in practice this only
+	 * ever answers an API Key.
+	 *
+	 * <p>The message names the missing scope, deliberately. The audience is someone
+	 * reading a script's log at the moment they can fix it, and "forbidden" alone would
+	 * send them to guess. This is not the information leak ADR-0008 guards against: the
+	 * caller is being told about the credential they are already holding.
+	 */
+	public void requireScope(Scope scope) {
+		if (authenticated().scopes().contains(scope)) {
+			return;
+		}
+		throw new ApiException(ProblemCode.INSUFFICIENT_SCOPE,
+				"This API key does not have the " + scope.wireName() + " permission.");
+	}
+
 	public boolean isVerified() {
 		return authenticated().emailVerified();
 	}

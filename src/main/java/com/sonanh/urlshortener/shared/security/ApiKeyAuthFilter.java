@@ -45,7 +45,8 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 		bearerToken(request)
 				.flatMap(authenticator::authenticate)
 				.ifPresent(owner -> {
-					var principal = AuthenticatedOwner.viaApiKey(owner.ownerId(), owner.emailVerified());
+					var principal = AuthenticatedOwner.viaApiKey(
+							owner.ownerId(), owner.emailVerified(), owner.scopes());
 					SecurityContextHolder.getContext()
 							.setAuthentication(new UsernamePasswordAuthenticationToken(principal, null, List.of()));
 
