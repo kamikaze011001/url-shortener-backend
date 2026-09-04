@@ -3,6 +3,7 @@ package com.sonanh.urlshortener.links.web;
 import tools.jackson.databind.JsonNode;
 import com.sonanh.urlshortener.links.usecase.CreateLinkUseCase;
 import com.sonanh.urlshortener.links.usecase.DeleteLinkUseCase;
+import com.sonanh.urlshortener.links.usecase.GetLinkHistoryUseCase;
 import com.sonanh.urlshortener.links.usecase.GetLinkUseCase;
 import com.sonanh.urlshortener.links.usecase.ListLinksUseCase;
 import com.sonanh.urlshortener.links.usecase.UpdateLinkUseCase;
@@ -34,18 +35,32 @@ class LinkController {
 	private final CreateLinkUseCase createLink;
 	private final ListLinksUseCase listLinks;
 	private final GetLinkUseCase getLink;
+	private final GetLinkHistoryUseCase getHistory;
 	private final UpdateLinkUseCase updateLink;
 	private final DeleteLinkUseCase deleteLink;
 	private final CurrentOwner currentOwner;
 
 	LinkController(CreateLinkUseCase createLink, ListLinksUseCase listLinks, GetLinkUseCase getLink,
-			UpdateLinkUseCase updateLink, DeleteLinkUseCase deleteLink, CurrentOwner currentOwner) {
+			GetLinkHistoryUseCase getHistory, UpdateLinkUseCase updateLink, DeleteLinkUseCase deleteLink,
+			CurrentOwner currentOwner) {
 		this.createLink = createLink;
 		this.listLinks = listLinks;
 		this.getLink = getLink;
+		this.getHistory = getHistory;
 		this.updateLink = updateLink;
 		this.deleteLink = deleteLink;
 		this.currentOwner = currentOwner;
+	}
+
+	/**
+	 * FR-4.9. The record this returns has been written since ADR-0009; this is the first
+	 * thing that reads it, which is what turns that ADR's promise into a visible feature.
+	 */
+	@GetMapping("/{id}/history")
+	java.util.List<DestinationChangeResponse> history(@PathVariable long id) {
+		return getHistory.execute(new GetLinkHistoryUseCase.Command(currentOwner.id(), id)).stream()
+				.map(DestinationChangeResponse::from)
+				.toList();
 	}
 
 	@PostMapping

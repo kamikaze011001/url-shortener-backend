@@ -7,6 +7,8 @@ import com.sonanh.urlshortener.shared.ratelimit.RateLimitFilter;
 import com.sonanh.urlshortener.shared.ratelimit.RedisRateLimiter;
 import com.sonanh.urlshortener.shared.security.JwtCodec;
 import com.sonanh.urlshortener.shared.security.JwtCookieAuthFilter;
+import com.sonanh.urlshortener.shared.security.ApiKeyAuthFilter;
+import com.sonanh.urlshortener.shared.security.ApiKeyAuthenticator;
 import com.sonanh.urlshortener.shared.security.OwnerAuthState;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.context.annotation.Bean;
@@ -32,7 +34,7 @@ public class SecurityConfig {
 	@Bean
 	public SecurityFilterChain filterChain(HttpSecurity http, JwtCodec jwtCodec,
 			RedisRateLimiter rateLimiter, ClientRequest clientRequest, MeterRegistry meters,
-			OwnerAuthState ownerAuthState) throws Exception {
+			OwnerAuthState ownerAuthState, ApiKeyAuthenticator apiKeyAuthenticator) throws Exception {
 
 		return http
 				// The session cookie is SameSite=Strict, which blocks the cross-site form
@@ -63,8 +65,13 @@ public class SecurityConfig {
 						// until someone deliberately opens it.
 						.anyRequest().authenticated())
 
+				// Order is the mechanism, not a detail. The key filter runs first, and the
+				// cookie filter yields to an already-authenticated context, which is how
+				// FR-8.6's "the key wins" is enforced without either filter knowing about
+				// the other's credential.
 				.addFilterBefore(new JwtCookieAuthFilter(jwtCodec, ownerAuthState),
 						UsernamePasswordAuthenticationFilter.class)
+				.addFilterBefore(new ApiKeyAuthFilter(apiKeyAuthenticator), JwtCookieAuthFilter.class)
 
 				// After the auth filter, so the per-Owner limit can see a principal, and
 				// before the endpoints, because the cheapest request to serve is one that

@@ -43,6 +43,13 @@ public class JwtCookieAuthFilter extends OncePerRequestFilter {
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
 			FilterChain chain) throws ServletException, IOException {
 
+		// The API Key filter has already run. If it authenticated, the cookie is ignored
+		// entirely — FR-8.6, the explicit credential beats the ambient one.
+		if (SecurityContextHolder.getContext().getAuthentication() != null) {
+			chain.doFilter(request, response);
+			return;
+		}
+
 		authenticate(request).ifPresent(owner -> {
 			var authentication = new UsernamePasswordAuthenticationToken(owner, null, List.of());
 			SecurityContextHolder.getContext().setAuthentication(authentication);
@@ -78,7 +85,7 @@ public class JwtCookieAuthFilter extends OncePerRequestFilter {
 				.flatMap(jwt::verify)
 				.flatMap(session -> ownerState.find(session.ownerId())
 						.filter(state -> state.tokenVersion() == session.tokenVersion())
-						.map(state -> new AuthenticatedOwner(session.ownerId(), state.emailVerified())));
+						.map(state -> AuthenticatedOwner.viaSession(session.ownerId(), state.emailVerified())));
 	}
 
 	private Optional<String> sessionToken(HttpServletRequest request) {
