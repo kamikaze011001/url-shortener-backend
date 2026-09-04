@@ -33,25 +33,41 @@ http://__APP_HOSTNAME__:__CADDY_PORT__ {
 		output file /var/log/caddy/app.log
 	}
 
-	# Hashed asset filenames are immutable; index.html must never be, or a deploy leaves
-	# browsers holding a stale shell that references assets which no longer exist.
-	@assets path /assets/*
-	header @assets Cache-Control "public, max-age=31536000, immutable"
-	header /index.html Cache-Control "no-cache"
+	# Assets get their own handler and are NOT served through try_files, so a missing one
+	# answers 404.
+	#
+	# With a single try_files across the whole site, a request for an asset that no longer
+	# exists falls through to index.html and answers 200 with HTML — which the browser
+	# then tries to execute as JavaScript, producing a blank page and a syntax error
+	# instead of the 404 that would have said what actually happened. Not hypothetical: a
+	# deploy deletes the previous build's hashed files, so any browser still holding the
+	# old shell asks for exactly those.
+	handle /assets/* {
+		root * /opt/url-shortener/frontend
+		# Hashed filenames, so the content behind one can never change.
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
 
-	# `/api/*`, never a bare `/api` prefix. A prefix also swallows every path that
-	# merely *begins* with those characters, and this application has a client-side
-	# route called `/api-keys` — which is exactly how it broke in the Vite dev proxy
-	# before it was anchored. The trailing slash is the whole fix.
+	# `/api/*`, never a bare `/api` prefix. A prefix also swallows every path that merely
+	# *begins* with those characters, and this application has a client-side route called
+	# `/api-keys` — which is exactly how it broke in the Vite dev proxy before it was
+	# anchored. The trailing slash is the whole fix.
 	handle /api/* {
 		reverse_proxy 127.0.0.1:__APP_PORT__
 	}
 
-	# The SPA. `try_files` is what makes client-side routing work: a deep link such as
-	# /links/24 is not a file on disk, and without the fallback it would 404 on refresh
-	# even though the application can render it perfectly well.
+	# Everything else is the SPA shell: `/`, `/links/24`, `/api-keys`. `try_files` is what
+	# makes client-side routing work — a deep link is not a file on disk, and without the
+	# fallback it would 404 on refresh even though the app can render it.
+	#
+	# The header applies to every one of those paths, which is the point. Matching on
+	# `/index.html` alone missed all of them: the request path for the root is `/`, and
+	# Caddy matches the request rather than what try_files rewrote it to. The shell must
+	# never be cached, or a browser keeps a copy pointing at assets a later deploy removed.
 	handle {
 		root * /opt/url-shortener/frontend
+		header Cache-Control "no-cache"
 		try_files {path} /index.html
 		file_server
 	}
