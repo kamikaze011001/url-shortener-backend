@@ -17,8 +17,9 @@ info:
   description: |
     Management API for the URL Shortener, plus the public redirect endpoint.
 
-    Authentication is a JWT in an `httpOnly` cookie named `session`. There is no
-    `Authorization` header in this API and the frontend never reads the token.
+    Two credentials. A browser authenticates with a JWT in an `httpOnly` cookie
+    named `session`, which the frontend can never read. A program authenticates with
+    `Authorization: Bearer sk_live_...`; when both arrive, the header wins (FR-8.6).
 
     Errors are RFC 9457 `application/problem+json`. Switch on the `code` field,
     never on `title` or `detail`.
@@ -34,6 +35,8 @@ tags:
     description: Owner registration and sessions
   - name: links
     description: Creating and managing Links
+  - name: keys
+    description: API Keys — the credential a program uses instead of a browser
   - name: redirect
     description: The public redirect endpoint. Served on the SHORT host only.
 
@@ -143,6 +146,102 @@ paths:
               schema: { $ref: '#/components/schemas/Owner' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
 
+  /auth/verify-email:
+    post:
+      tags: [auth]
+      summary: Confirm an email address with a code
+      description: |
+        Consumes the code and marks the Owner verified. Single-use, and dead after five
+        wrong attempts — see FR-1.11.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  pattern: '^[0-9]{6}$'
+      responses:
+        '200':
+          description: Verified. The returned Owner reports `emailVerified` as true.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Owner' }
+        '400': { $ref: '#/components/responses/BadCode' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/resend-verification:
+    post:
+      tags: [auth]
+      summary: Send a fresh verification code
+      description: |
+        Answers `202` whether or not anything was sent. An already-verified Owner gets
+        the same response, so this endpoint reveals nothing that `/auth/me` does not
+        already tell the caller about their own account.
+      responses:
+        '202': { description: Accepted. A code is on its way if one was needed. }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/forgot-password:
+    post:
+      tags: [auth]
+      summary: Request a password reset code
+      description: |
+        **Always answers `202`**, whether or not the address is registered (FR-1.12).
+        Answering "no such account" would hand back exactly the account-enumeration
+        oracle that the uniform `401` on login exists to close.
+
+        Rate limited per IP **and** per target address (FR-6.7). The per-address bucket
+        is what stops an attacker rotating IPs to flood one victim's inbox.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+      responses:
+        '202':
+          description: |
+            Accepted. A code was sent **only if** the address is registered — the
+            response is identical either way.
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/reset-password:
+    post:
+      tags: [auth]
+      summary: Set a new password using a reset code
+      description: |
+        On success **every existing session for this Owner is invalidated** (FR-1.10),
+        including the one making this request. The Owner signs in again with the new
+        password.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code, password]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+                password: { type: string, minLength: 8, maxLength: 128 }
+      responses:
+        '204':
+          description: Password changed. Every session for this Owner is now invalid.
+        '400': { $ref: '#/components/responses/BadCode' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
   # ── links ──────────────────────────────────────────────────────────────────
 
   /links:
@@ -173,11 +272,14 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/LinkPage' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
 
     post:
       tags: [links]
       summary: Create a Link
       description: |
+        **Requires the `links:write` scope** when authenticated by an API Key.
+
         With no `alias`, a 7-character base62 Short Code is generated. With an
         `alias`, that exact string is claimed or the request fails — it never
         silently falls back to a generated code.
@@ -196,6 +298,7 @@ paths:
               schema: { $ref: '#/components/schemas/Link' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/LinkCreationForbidden' }
         '409':
           description: |
             `ALIAS_TAKEN` — the Alias is already in the Code Namespace.
@@ -238,12 +341,15 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Link' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
         '404': { $ref: '#/components/responses/NotFound' }
 
     patch:
       tags: [links]
       summary: Update a Link
       description: |
+        **Requires the `links:write` scope** when authenticated by an API Key.
+
         Only `destination`, `status` and `expiresAt` are mutable. The Short Code
         can never change: renaming would release the old string back into the
         Code Namespace for someone else to claim.
@@ -266,6 +372,7 @@ paths:
               schema: { $ref: '#/components/schemas/Link' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422':
           description: '`INVALID_DESTINATION` or `DESTINATION_NOT_ALLOWED`'
@@ -277,12 +384,15 @@ paths:
       tags: [links]
       summary: Delete a Link
       description: |
+        **Requires the `links:write` scope** when authenticated by an API Key.
+
         Soft delete. The Link stops redirecting and leaves the Owner's list, but
         the row is retained and **the Short Code is never released**. Reusing a
         code would silently repoint a link that someone has already shared.
       responses:
         '204': { description: Deleted }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /links/{id}/stats:
@@ -290,6 +400,8 @@ paths:
       tags: [links]
       summary: Click statistics for a Link
       description: |
+        **Requires the `links:read` scope** when authenticated by an API Key.
+
         Counts are approximate by design — analytics, not an audit log.
         Visible only to the Owner.
       parameters:
@@ -312,6 +424,138 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/LinkStats' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /links/{id}/history:
+    get:
+      tags: [links]
+      summary: Destination history for a Link
+      description: |
+        **Requires the `links:read` scope** when authenticated by an API Key.
+
+        Every previous Destination, newest first, with who changed it and when.
+
+        This is the record [ADR-0009](./adr/0009-mutable-destination-with-audit.md)
+        relies on when it argues that a mutable Destination is defensible rather than a
+        loophole. Until this endpoint existed, that argument described a property the
+        product did not expose.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The changes, newest first. Empty for a Link never edited.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DestinationChange' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ── api keys ───────────────────────────────────────────────────────────────
+
+  /api-keys:
+    get:
+      tags: [keys]
+      summary: List this Owner's API Keys
+      description: |
+        Never returns key material. Each entry carries a prefix and the last four
+        characters, which is enough to tell keys apart and not enough to use one.
+      responses:
+        '200':
+          description: The Owner's live keys, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ApiKey' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+    post:
+      tags: [keys]
+      summary: Create an API Key
+      description: |
+        **The only response that ever contains the key itself.** It is stored as a
+        SHA-256 hash and cannot be recovered — an Owner who loses it revokes it and
+        creates another.
+
+        Requires a session cookie. A request authenticated by an API Key may not manage
+        API Keys (FR-8.5), so a leaked key cannot mint more keys.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scopes]
+              properties:
+                name:
+                  type: string
+                  maxLength: 64
+                  description: For the Owner's own reference, e.g. "CI pipeline".
+                scopes:
+                  type: array
+                  minItems: 1
+                  items: { $ref: '#/components/schemas/ApiKeyScope' }
+                  description: |
+                    At least one. There is no default: a key's authority is the one
+                    thing about it worth stating out loud.
+                expiresInDays:
+                  type: [integer, 'null']
+                  minimum: 1
+                  maximum: 365
+                  description: |
+                    Lifetime from now. Omit or send `null` for a key that never expires.
+
+                    A duration rather than an absolute timestamp: a caller sending a
+                    timestamp needs a clock and a timezone, and the server owns the
+                    clock either way.
+      responses:
+        '201':
+          description: Created. `key` appears here and nowhere else, ever.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiKeyCreated' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403':
+          description: |
+            `FORBIDDEN` — the request was authenticated by an API Key, which may not
+            manage API Keys.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api-keys/{id}:
+    delete:
+      tags: [keys]
+      summary: Revoke an API Key
+      description: |
+        Takes effect on the next request. The row is kept, marked revoked — a key that
+        was used is evidence, and deleting the row would erase `lastUsedAt` along with
+        it.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Revoked }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403':
+          description: '`FORBIDDEN` — an API Key may not manage API Keys.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   # ── redirect ───────────────────────────────────────────────────────────────
@@ -369,8 +613,28 @@ components:
       name: session
       description: |
         JWT, 1 hour lifetime. `HttpOnly; SameSite=Strict`, plus `Secure` in
-        production. Not readable from JavaScript, and not revocable before it
-        expires.
+        production. Not readable from JavaScript. Revoked before expiry by bumping the
+        Owner's `token_version`, which a password reset does
+        ([ADR-0018](./adr/0018-session-revocation-by-token-version.md)).
+
+        A session carries every scope: it is the human, acting on their own account.
+
+    apiKey:
+      type: http
+      scheme: bearer
+      description: |
+        `Authorization: Bearer sk_live_...`. Created in the dashboard, shown once,
+        stored as a SHA-256 hash. **Wins over the session cookie when both are sent**
+        — the header is explicit, the cookie is ambient, and a request that half-uses
+        each is how privilege bugs start.
+
+        Carries the scopes it was created with, and expires if it was given a lifetime.
+        An expired, revoked or unknown key all answer an identical `401`; the key list
+        is where the difference is visible (FR-8.11).
+
+        **Scopes are not declared on this scheme.** OpenAPI can only attach scopes to
+        `oauth2`, and this is not OAuth. Each endpoint states the scope it needs in its
+        own description, and `INSUFFICIENT_SCOPE` names it at runtime.
 
   headers:
     SessionCookie:
@@ -397,6 +661,51 @@ components:
 
     ValidationFailed:
       description: '`VALIDATION_FAILED` — see the `errors` array for the fields'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+    LinkCreationForbidden:
+      description: |
+        Two codes share this status, and the fix differs for each — `code` is what tells
+        them apart.
+
+        `EMAIL_NOT_VERIFIED` — the Owner exists and is signed in, but has not confirmed
+        their address, so they may not create Links (FR-1.7). Deliberately **not** the
+        uniform `404` of
+        [ADR-0008](./adr/0008-soft-delete-and-uniform-404.md). That rule exists to avoid
+        confirming whether a *resource* exists; here the caller is asking about their
+        own account, already knows it exists, and needs to be told what to do next.
+
+        `INSUFFICIENT_SCOPE` — the request authenticated with an API Key that was not
+        granted `links:write` (FR-8.10).
+
+        The order matters: verification is checked first, because an unverified Owner
+        cannot create Links with *any* credential (FR-8.8) and telling them to widen a
+        key's scopes would send them to fix the wrong thing.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+    InsufficientScope:
+      description: |
+        `INSUFFICIENT_SCOPE` — the request authenticated correctly, with an API Key whose
+        scopes do not cover this endpoint (FR-8.10). The `detail` names the scope that
+        was needed, because the audience is someone reading a script's log at the point
+        where they can fix it.
+
+        A session cookie never sees this: a session carries every scope.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+    BadCode:
+      description: |
+        `INVALID_CODE` — wrong digits, already used, or too many attempts.
+        `CODE_EXPIRED` — past its ten-minute life; request another.
+
+        The two are distinguished because the fix differs: one means try again, the
+        other means start over. Neither reveals whether an account exists.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -440,6 +749,11 @@ components:
             - INVALID_DESTINATION
             - DESTINATION_NOT_ALLOWED
             - RATE_LIMITED
+            - EMAIL_NOT_VERIFIED
+            - INVALID_CODE
+            - CODE_EXPIRED
+            - INSUFFICIENT_SCOPE
+            - FORBIDDEN
             - INTERNAL
         errors:
           type: array
@@ -451,11 +765,79 @@ components:
 
     Owner:
       type: object
-      required: [id, email, createdAt]
+      required: [id, email, emailVerified, createdAt]
       properties:
         id: { type: string, format: uuid }
         email: { type: string, format: email }
+        emailVerified:
+          type: boolean
+          description: |
+            Read fresh on every authenticated request rather than carried as a JWT
+            claim, so it cannot be stale — an Owner who verifies does not have to sign
+            out and back in. See ADR-0018.
         createdAt: { type: string, format: date-time }
+
+    DestinationChange:
+      type: object
+      required: [id, oldDestination, newDestination, changedAt]
+      properties:
+        id: { type: string }
+        oldDestination: { type: string, format: uri }
+        newDestination: { type: string, format: uri }
+        changedAt: { type: string, format: date-time }
+
+    ApiKeyScope:
+      type: string
+      enum: [links:read, links:write]
+      description: |
+        What a key is allowed to do. Neither implies the other — `links:write` without
+        `links:read` is a key that can create Links but cannot enumerate them, which is
+        the shape a load generator wants.
+
+        There is no scope for managing API Keys. A key may never do that, whatever its
+        scopes say (FR-8.5); expressing it as a scope would make it grantable.
+
+    ApiKey:
+      type: object
+      required: [id, name, keyPrefix, last4, scopes, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string, maxLength: 64 }
+        keyPrefix:
+          type: string
+          description: 'The leading characters, e.g. `sk_live_8f2a`.'
+        last4:
+          type: string
+          minLength: 4
+          maxLength: 4
+        scopes:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/ApiKeyScope' }
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            Null when the key never expires. A key past this moment authenticates
+            nothing, but stays in this list, marked expired, so the Owner debugging a
+            broken script can see why (FR-8.11).
+        lastUsedAt:
+          type: [string, 'null']
+          format: date-time
+          description: Null until the key is first used. Best-effort, not exact.
+        createdAt: { type: string, format: date-time }
+
+    ApiKeyCreated:
+      allOf:
+        - $ref: '#/components/schemas/ApiKey'
+        - type: object
+          required: [key]
+          properties:
+            key:
+              type: string
+              description: |
+                The plaintext key. **Present in this one response and nowhere else,
+                ever.** Only a SHA-256 hash is stored, so it cannot be shown again.
 
     Link:
       type: object
@@ -569,5 +951,8 @@ components:
                 enum: [DESKTOP, MOBILE, TABLET, BOT, UNKNOWN]
               clicks: { type: integer, format: int64 }
 
+# Either credential authenticates a request. Endpoints that must not accept an API Key
+# — the API Key management endpoints themselves — narrow this locally (FR-8.5).
 security:
   - sessionCookie: []
+  - apiKey: []
