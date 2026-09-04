@@ -14,7 +14,13 @@ never edit the vendored copy.
 docker compose up -d                            # Postgres :5433, Redis :6379
 ./gradlew bootRun                               # app on :8080
 ./gradlew test --tests '*ModularityTests*'      # module boundaries
+python3 e2e/run.py                              # end-to-end, against a running stack
 ```
+
+`e2e/run.py` drives the system through its public HTTP surface only — no test hooks, no
+database writes, no clock manipulation. It obeys the real rate limits rather than
+disabling them, so a full run takes a few minutes and that is the point: a suite that
+turned the limiter off would be testing a configuration nobody deploys.
 
 Postgres is on **5433**: 5432 is taken by an unrelated container on this machine.
 
