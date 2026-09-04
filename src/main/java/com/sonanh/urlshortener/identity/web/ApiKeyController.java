@@ -43,7 +43,8 @@ class ApiKeyController {
 	ResponseEntity<ApiKeyCreatedResponse> create(@Valid @RequestBody CreateApiKeyRequest request) {
 		currentOwner.requireSessionCredential();
 
-		var created = apiKeys.create(currentOwner.id(), request.name());
+		var created = apiKeys.create(currentOwner.id(), request.name(), request.toScopes(),
+				request.expiresInDays());
 
 		return ResponseEntity.status(HttpStatus.CREATED)
 				.body(ApiKeyCreatedResponse.from(created));

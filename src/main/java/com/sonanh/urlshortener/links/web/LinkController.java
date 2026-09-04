@@ -9,6 +9,7 @@ import com.sonanh.urlshortener.links.usecase.ListLinksUseCase;
 import com.sonanh.urlshortener.links.usecase.UpdateLinkUseCase;
 import com.sonanh.urlshortener.shared.error.ApiException;
 import com.sonanh.urlshortener.shared.security.CurrentOwner;
+import com.sonanh.urlshortener.shared.security.Scope;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -58,6 +59,8 @@ class LinkController {
 	 */
 	@GetMapping("/{id}/history")
 	java.util.List<DestinationChangeResponse> history(@PathVariable long id) {
+		currentOwner.requireScope(Scope.LINKS_READ);
+
 		return getHistory.execute(new GetLinkHistoryUseCase.Command(currentOwner.id(), id)).stream()
 				.map(DestinationChangeResponse::from)
 				.toList();
@@ -65,9 +68,14 @@ class LinkController {
 
 	@PostMapping
 	ResponseEntity<LinkResponse> create(@Valid @RequestBody CreateLinkRequest request) {
-		// FR-1.7. At the edge, beside the other question about the caller rather than
-		// inside the use case, which has no business reading the security context.
+		// Both are questions about the caller, asked at the edge rather than inside the
+		// use case, which has no business reading the security context.
+		//
+		// Verification first, and the order is deliberate: an unverified Owner cannot
+		// create Links with any credential (FR-8.8), so telling them to widen a key's
+		// scopes would send them to fix the wrong thing.
 		currentOwner.requireVerified();
+		currentOwner.requireScope(Scope.LINKS_WRITE);
 
 		var command = new CreateLinkUseCase.Command(
 				currentOwner.id(), request.destination(), request.alias(), request.expiresAt());
@@ -83,6 +91,8 @@ class LinkController {
 			@RequestParam(required = false) String search,
 			@RequestParam(required = false) String status) {
 
+		currentOwner.requireScope(Scope.LINKS_READ);
+
 		var result = listLinks.execute(new ListLinksUseCase.Command(
 				currentOwner.id(), search, status, Math.max(page, 0), clampSize(size)));
 
@@ -91,12 +101,16 @@ class LinkController {
 
 	@GetMapping("/{id}")
 	LinkResponse get(@PathVariable String id) {
+		currentOwner.requireScope(Scope.LINKS_READ);
+
 		return LinkResponse.from(getLink.execute(
 				new GetLinkUseCase.Command(currentOwner.id(), linkId(id))));
 	}
 
 	@PatchMapping("/{id}")
 	LinkResponse update(@PathVariable String id, @RequestBody JsonNode body) {
+		currentOwner.requireScope(Scope.LINKS_WRITE);
+
 		// Read as raw JSON, not a bound record: a PATCH must tell an absent field from
 		// an explicit null, and binding cannot. See UpdateLinkRequest.
 		UpdateLinkRequest request = UpdateLinkRequest.from(body);
@@ -114,6 +128,8 @@ class LinkController {
 
 	@DeleteMapping("/{id}")
 	ResponseEntity<Void> delete(@PathVariable String id) {
+		currentOwner.requireScope(Scope.LINKS_WRITE);
+
 		deleteLink.execute(new DeleteLinkUseCase.Command(currentOwner.id(), linkId(id)));
 		return ResponseEntity.noContent().build();
 	}

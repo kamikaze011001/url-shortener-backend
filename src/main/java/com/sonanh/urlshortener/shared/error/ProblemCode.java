@@ -42,6 +42,13 @@ public enum ProblemCode {
 	/** Past its ten-minute life. Separate from INVALID_CODE because the fix differs. */
 	CODE_EXPIRED(HttpStatus.BAD_REQUEST, "Code expired"),
 
+	/**
+	 * The credential authenticated correctly but was not granted the scope this endpoint
+	 * needs (FR-8.10). Distinct from FORBIDDEN because the fix differs: widen the key's
+	 * scopes, rather than stop using a key at all.
+	 */
+	INSUFFICIENT_SCOPE(HttpStatus.FORBIDDEN, "Insufficient scope"),
+
 	FORBIDDEN(HttpStatus.FORBIDDEN, "Forbidden"),
 	INTERNAL(HttpStatus.INTERNAL_SERVER_ERROR, "Internal error");
 

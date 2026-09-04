@@ -2,6 +2,7 @@ package com.sonanh.urlshortener.analytics.web;
 
 import com.sonanh.urlshortener.analytics.usecase.GetLinkStatsUseCase;
 import com.sonanh.urlshortener.shared.security.CurrentOwner;
+import com.sonanh.urlshortener.shared.security.Scope;
 import java.time.LocalDate;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,6 +42,10 @@ class StatsController {
 			@PathVariable long id,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+
+		// Reading a Link's clicks is reading a Link — deliberately not its own scope
+		// (ADR-0020).
+		currentOwner.requireScope(Scope.LINKS_READ);
 
 		var command = new GetLinkStatsUseCase.Command(currentOwner.id(), id, from, to);
 		return LinkStatsResponse.from(getStats.execute(command));
