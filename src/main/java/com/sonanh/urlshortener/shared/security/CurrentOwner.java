@@ -45,6 +45,22 @@ public class CurrentOwner {
 		}
 	}
 
+	/**
+	 * Refuses a request that authenticated with an API Key (FR-8.5).
+	 *
+	 * <p>Guards the API Key endpoints themselves, and only those. It is what stops a
+	 * leaked key from minting more keys or revoking the real ones — containment that
+	 * costs one check and turns a stolen credential into a bounded problem rather than
+	 * a foothold.
+	 */
+	public void requireSessionCredential() {
+		if (authenticated().credential() != AuthenticatedOwner.Credential.API_KEY) {
+			return;
+		}
+		throw new ApiException(ProblemCode.FORBIDDEN,
+				"API keys cannot manage API keys. Sign in to do that.");
+	}
+
 	public boolean isVerified() {
 		return authenticated().emailVerified();
 	}

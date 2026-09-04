@@ -3,6 +3,7 @@ package com.sonanh.urlshortener.shared.ratelimit;
 import com.sonanh.urlshortener.shared.error.ProblemCode;
 import com.sonanh.urlshortener.shared.error.ProblemWriter;
 import com.sonanh.urlshortener.shared.http.ClientRequest;
+import com.sonanh.urlshortener.shared.security.AuthenticatedOwner;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -53,6 +54,14 @@ public class RateLimitFilter extends OncePerRequestFilter {
 	/** FR-6.9 — submitting a code, on top of the 5 attempts each code carries. */
 	private static final RateLimitPolicy CODE_SUBMIT = RateLimitPolicy.perHour("code-submit-owner", 10);
 
+	/**
+	 * FR-6.10. Higher than a browser's ten, because a script making a request a second
+	 * is working rather than attacking — and keyed on the Owner behind the key rather
+	 * than the IP, because automation runs from shared cloud addresses where per-IP
+	 * would let one tenant exhaust the ceiling for every unrelated tenant beside them.
+	 */
+	private static final RateLimitPolicy CREATE_PER_KEY = RateLimitPolicy.perMinute("create-key", 60);
+
 	/** The same shape the security chain and the controller use for a Short Code. */
 	private static final Pattern SHORT_CODE_PATH = Pattern.compile("/[A-Za-z0-9_-]{3,32}");
 
@@ -97,7 +106,15 @@ public class RateLimitFilter extends OncePerRequestFilter {
 			checks.add(new Check(AUTH, clientKey(request)));
 		}
 		else if (method == HttpMethod.POST && path.equals("/api/v1/links")) {
-			checks.add(new Check(CREATE_PER_IP, clientKey(request)));
+			// A keyed request gets its own ceiling instead of the browser's, and skips
+			// the per-IP bucket entirely: an IP limit on automation is a limit on
+			// whichever datacenter it happens to run in.
+			if (authenticatedVia() == AuthenticatedOwner.Credential.API_KEY) {
+				ownerId().ifPresent(owner -> checks.add(new Check(CREATE_PER_KEY, owner.toString())));
+			}
+			else {
+				checks.add(new Check(CREATE_PER_IP, clientKey(request)));
+			}
 			ownerId().ifPresent(owner -> checks.add(new Check(CREATE_PER_OWNER, owner.toString())));
 		}
 		else if (method == HttpMethod.GET && SHORT_CODE_PATH.matcher(path).matches()) {
@@ -132,10 +149,18 @@ public class RateLimitFilter extends OncePerRequestFilter {
 		return client.ipHash(request);
 	}
 
+	private AuthenticatedOwner.Credential authenticatedVia() {
+		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+		return (authentication != null
+				&& authentication.getPrincipal() instanceof AuthenticatedOwner owner)
+				? owner.credential()
+				: null;
+	}
+
 	private java.util.Optional<UUID> ownerId() {
 		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 		return (authentication != null
-				&& authentication.getPrincipal() instanceof com.sonanh.urlshortener.shared.security.AuthenticatedOwner owner)
+				&& authentication.getPrincipal() instanceof AuthenticatedOwner owner)
 				? java.util.Optional.of(owner.id())
 				: java.util.Optional.empty();
 	}
