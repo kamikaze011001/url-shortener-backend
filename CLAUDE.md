@@ -36,7 +36,7 @@ com.sonanh.urlshortener
 │   ├── store/                  database edge
 │   └── web/                    HTTP edge: controller + wire records
 ├── redirect/                   the hot path — usecase/, web/
-├── analytics/                  Clicks and statistics — port/, usecase/, store/
+├── analytics/                  Clicks and statistics — port/, usecase/, domain/, store/, web/
 └── identity/                   Owners, registration, login, session
 ```
 
