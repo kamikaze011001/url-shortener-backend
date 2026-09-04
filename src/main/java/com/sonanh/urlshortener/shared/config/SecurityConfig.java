@@ -1,13 +1,16 @@
 package com.sonanh.urlshortener.shared.config;
 
 import com.sonanh.urlshortener.shared.error.ProblemCode;
+import com.sonanh.urlshortener.shared.error.ProblemWriter;
+import com.sonanh.urlshortener.shared.http.ClientRequest;
+import com.sonanh.urlshortener.shared.ratelimit.RateLimitFilter;
+import com.sonanh.urlshortener.shared.ratelimit.RedisRateLimiter;
 import com.sonanh.urlshortener.shared.security.JwtCodec;
 import com.sonanh.urlshortener.shared.security.JwtCookieAuthFilter;
-import jakarta.servlet.http.HttpServletResponse;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -26,7 +29,9 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
 	@Bean
-	public SecurityFilterChain filterChain(HttpSecurity http, JwtCodec jwtCodec) throws Exception {
+	public SecurityFilterChain filterChain(HttpSecurity http, JwtCodec jwtCodec,
+			RedisRateLimiter rateLimiter, ClientRequest clientRequest, MeterRegistry meters)
+			throws Exception {
 
 		return http
 				// The session cookie is SameSite=Strict, which blocks the cross-site form
@@ -55,13 +60,20 @@ public class SecurityConfig {
 
 				.addFilterBefore(new JwtCookieAuthFilter(jwtCodec), UsernamePasswordAuthenticationFilter.class)
 
+				// After the auth filter, so the per-Owner limit can see a principal, and
+				// before the endpoints, because the cheapest request to serve is one that
+				// never reaches a use case. Constructed here rather than injected for the
+				// CGLIB reason spelled out on the filter itself.
+				.addFilterAfter(new RateLimitFilter(rateLimiter, clientRequest, meters),
+						JwtCookieAuthFilter.class)
+
 				// Without this, an unauthenticated request gets Spring's HTML login
 				// redirect instead of the problem+json every other error uses.
 				.exceptionHandling(handling -> handling
 						.authenticationEntryPoint((request, response, ex) ->
-								writeProblem(response, ProblemCode.UNAUTHENTICATED, "Not authenticated."))
+								ProblemWriter.write(response, ProblemCode.UNAUTHENTICATED, "Not authenticated."))
 						.accessDeniedHandler((request, response, ex) ->
-								writeProblem(response, ProblemCode.NOT_FOUND, "Not found.")))
+								ProblemWriter.write(response, ProblemCode.NOT_FOUND, "Not found.")))
 				.build();
 	}
 
@@ -70,13 +82,4 @@ public class SecurityConfig {
 		return new BCryptPasswordEncoder(10);
 	}
 
-	private void writeProblem(HttpServletResponse response, ProblemCode code, String detail)
-			throws java.io.IOException {
-
-		response.setStatus(code.status().value());
-		response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-		response.getWriter().write("""
-				{"type":"%s","title":"%s","status":%d,"detail":"%s","code":"%s"}"""
-				.formatted(code.type(), code.title(), code.status().value(), detail, code.name()));
-	}
 }
