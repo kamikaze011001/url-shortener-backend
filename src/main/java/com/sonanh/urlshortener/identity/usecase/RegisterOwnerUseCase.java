@@ -27,7 +27,8 @@ public class RegisterOwnerUseCase {
 
 	public record Command(String email, String password) {}
 
-	public record Result(UUID ownerId, String email, Instant createdAt) {}
+	public record Result(UUID ownerId, String email, boolean emailVerified, int tokenVersion,
+			Instant createdAt) {}
 
 	@Transactional
 	public Result execute(Command command) {
@@ -43,6 +44,7 @@ public class RegisterOwnerUseCase {
 				});
 
 		log.info("auth.registered ownerId={}", owner.id());
-		return new Result(owner.id(), owner.email(), owner.createdAt());
+		return new Result(owner.id(), owner.email(), owner.emailVerified(), owner.tokenVersion(),
+				owner.createdAt());
 	}
 }

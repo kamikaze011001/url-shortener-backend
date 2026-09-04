@@ -7,6 +7,7 @@ import com.sonanh.urlshortener.shared.ratelimit.RateLimitFilter;
 import com.sonanh.urlshortener.shared.ratelimit.RedisRateLimiter;
 import com.sonanh.urlshortener.shared.security.JwtCodec;
 import com.sonanh.urlshortener.shared.security.JwtCookieAuthFilter;
+import com.sonanh.urlshortener.shared.security.OwnerAuthState;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,8 +31,8 @@ public class SecurityConfig {
 
 	@Bean
 	public SecurityFilterChain filterChain(HttpSecurity http, JwtCodec jwtCodec,
-			RedisRateLimiter rateLimiter, ClientRequest clientRequest, MeterRegistry meters)
-			throws Exception {
+			RedisRateLimiter rateLimiter, ClientRequest clientRequest, MeterRegistry meters,
+			OwnerAuthState ownerAuthState) throws Exception {
 
 		return http
 				// The session cookie is SameSite=Strict, which blocks the cross-site form
@@ -50,7 +51,11 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.GET, "/").permitAll()
 
 						.requestMatchers("/api/v1/auth/register", "/api/v1/auth/login",
-								"/api/v1/auth/logout").permitAll()
+								"/api/v1/auth/logout",
+								// Both take an email and a code, not a session: an Owner who
+								// cannot sign in is exactly who needs them.
+								"/api/v1/auth/forgot-password",
+								"/api/v1/auth/reset-password").permitAll()
 						.requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
 
 						// Everything else, including /api/v1/links/** and the remaining
@@ -58,7 +63,8 @@ public class SecurityConfig {
 						// until someone deliberately opens it.
 						.anyRequest().authenticated())
 
-				.addFilterBefore(new JwtCookieAuthFilter(jwtCodec), UsernamePasswordAuthenticationFilter.class)
+				.addFilterBefore(new JwtCookieAuthFilter(jwtCodec, ownerAuthState),
+						UsernamePasswordAuthenticationFilter.class)
 
 				// After the auth filter, so the per-Owner limit can see a principal, and
 				// before the endpoints, because the cheapest request to serve is one that

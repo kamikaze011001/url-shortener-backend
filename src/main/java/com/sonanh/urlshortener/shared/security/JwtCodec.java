@@ -20,13 +20,15 @@ import org.springframework.stereotype.Component;
  * endpoints. Putting the codec in {@code identity} would force a port that exists only
  * to satisfy the module graph — a JWT is a mechanism, not a subject.
  *
- * <p><b>A token cannot be revoked before it expires.</b> There is no server-side
- * session and no deny list, so logout clears the cookie in the browser and nothing
- * more. Documented compromise; the fix is a token-version column on the Owner checked
- * per request, which costs a query per request and is why it is not here.
+ * <p><b>A token carries the Owner's token version</b>, and the filter compares it with
+ * the current one on every authenticated request. That is what lets a password reset
+ * end every existing session (ADR-0018). The check does not touch the redirect path,
+ * which is unauthenticated, so it never runs where the latency budget is tight.
  */
 @Component
 public class JwtCodec {
+
+	private static final String VERSION_CLAIM = "ver";
 
 	private final SecretKey key;
 	private final java.time.Duration ttl;
@@ -41,9 +43,10 @@ public class JwtCodec {
 		this.ttl = properties.security().sessionTtl();
 	}
 
-	public String issue(UUID ownerId, Instant now) {
+	public String issue(UUID ownerId, int tokenVersion, Instant now) {
 		return Jwts.builder()
 				.subject(ownerId.toString())
+				.claim(VERSION_CLAIM, tokenVersion)
 				.issuedAt(java.util.Date.from(now))
 				.expiration(java.util.Date.from(now.plus(ttl)))
 				.signWith(key)
@@ -51,20 +54,30 @@ public class JwtCodec {
 	}
 
 	/**
-	 * @return the Owner id, or empty when the token is absent, malformed, tampered with
-	 *         or expired. The caller treats every one of those the same way, so they are
-	 *         not worth distinguishing here.
+	 * @return the Owner id and the version the token was issued against, or empty when
+	 *         the token is absent, malformed, tampered with or expired. The caller
+	 *         treats every one of those the same way, so they are not distinguished.
 	 */
-	public Optional<UUID> verify(String token) {
+	public Optional<Session> verify(String token) {
 		try {
 			Claims claims = Jwts.parser().verifyWith(key).build()
 					.parseSignedClaims(token).getPayload();
-			return Optional.of(UUID.fromString(claims.getSubject()));
+
+			// A token minted before the version claim existed reads as 0, which is the
+			// column default — so sessions issued by the previous build stay valid
+			// instead of logging everyone out on deploy.
+			Integer version = claims.get(VERSION_CLAIM, Integer.class);
+
+			return Optional.of(new Session(
+					UUID.fromString(claims.getSubject()),
+					version == null ? 0 : version));
 		}
 		catch (JwtException | IllegalArgumentException ex) {
 			return Optional.empty();
 		}
 	}
+
+	public record Session(UUID ownerId, int tokenVersion) {}
 
 	public java.time.Duration ttl() {
 		return ttl;

@@ -38,7 +38,8 @@ public class LoginUseCase {
 
 	public record Command(String email, String password) {}
 
-	public record Result(UUID ownerId, String email, Instant createdAt) {}
+	public record Result(UUID ownerId, String email, boolean emailVerified, int tokenVersion,
+			Instant createdAt) {}
 
 	/**
 	 * Answers UNAUTHENTICATED for both a wrong password and an unknown email. The two
@@ -59,6 +60,7 @@ public class LoginUseCase {
 
 		OwnerRepository.OwnerRow owner = found.get();
 		log.info("auth.login_succeeded ownerId={}", owner.id());
-		return new Result(owner.id(), owner.email(), owner.createdAt());
+		return new Result(owner.id(), owner.email(), owner.emailVerified(), owner.tokenVersion(),
+				owner.createdAt());
 	}
 }

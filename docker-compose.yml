@@ -39,5 +39,19 @@ services:
       timeout: 3s
       retries: 10
 
+  # Local mail. A real SMTP endpoint and a web inbox, so the verification flow can be
+  # demonstrated end to end with nothing outside this machine. Production swaps the
+  # host and port for a real provider — the MailSender port means no code changes.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: urlshortener-mailpit
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # web inbox
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+
 volumes:
   postgres-data:
