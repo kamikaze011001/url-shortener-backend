@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import org.slf4j.MDC;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -33,23 +32,23 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class JwtCookieAuthFilter extends OncePerRequestFilter {
 
 	private final JwtCodec jwt;
+	private final OwnerAuthState ownerState;
 
-	public JwtCookieAuthFilter(JwtCodec jwt) {
+	public JwtCookieAuthFilter(JwtCodec jwt, OwnerAuthState ownerState) {
 		this.jwt = jwt;
+		this.ownerState = ownerState;
 	}
 
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
 			FilterChain chain) throws ServletException, IOException {
 
-		Optional<UUID> ownerId = sessionToken(request).flatMap(jwt::verify);
-
-		ownerId.ifPresent(id -> {
-			var authentication = new UsernamePasswordAuthenticationToken(id, null, List.of());
+		authenticate(request).ifPresent(owner -> {
+			var authentication = new UsernamePasswordAuthenticationToken(owner, null, List.of());
 			SecurityContextHolder.getContext().setAuthentication(authentication);
 			// Every log line inside this request carries the owner without being passed
 			// one (03-architecture.md § Observability).
-			MDC.put("ownerId", id.toString());
+			MDC.put("ownerId", owner.id().toString());
 		});
 
 		try {
@@ -62,6 +61,24 @@ public class JwtCookieAuthFilter extends OncePerRequestFilter {
 			MDC.remove("ownerId");
 			SecurityContextHolder.clearContext();
 		}
+	}
+
+	/**
+	 * A signature that verifies is no longer enough. The token also has to still be the
+	 * current generation for its Owner: a password reset increments the version, and
+	 * every token minted before that stops matching (ADR-0018).
+	 *
+	 * <p>A stale token is treated exactly like a missing one — the context stays
+	 * anonymous and the security chain decides. No 401 is raised here, because doing so
+	 * would break the public redirect path, which carries whatever cookie the browser
+	 * happens to hold.
+	 */
+	private Optional<AuthenticatedOwner> authenticate(HttpServletRequest request) {
+		return sessionToken(request)
+				.flatMap(jwt::verify)
+				.flatMap(session -> ownerState.find(session.ownerId())
+						.filter(state -> state.tokenVersion() == session.tokenVersion())
+						.map(state -> new AuthenticatedOwner(session.ownerId(), state.emailVerified())));
 	}
 
 	private Optional<String> sessionToken(HttpServletRequest request) {

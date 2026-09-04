@@ -28,6 +28,21 @@ public enum ProblemCode {
 	INVALID_DESTINATION(HttpStatus.UNPROCESSABLE_ENTITY, "Invalid destination"),
 	DESTINATION_NOT_ALLOWED(HttpStatus.UNPROCESSABLE_ENTITY, "Destination not allowed"),
 	RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Too many requests"),
+
+	/**
+	 * The Owner is signed in but has not confirmed their address (FR-1.7). The one
+	 * deliberate exception to ADR-0008's uniform 404: the caller is asking about their
+	 * own account, so there is nothing to conceal and something to explain.
+	 */
+	EMAIL_NOT_VERIFIED(HttpStatus.FORBIDDEN, "Email not verified"),
+
+	/** Wrong digits, already used, or too many attempts. */
+	INVALID_CODE(HttpStatus.BAD_REQUEST, "Invalid code"),
+
+	/** Past its ten-minute life. Separate from INVALID_CODE because the fix differs. */
+	CODE_EXPIRED(HttpStatus.BAD_REQUEST, "Code expired"),
+
+	FORBIDDEN(HttpStatus.FORBIDDEN, "Forbidden"),
 	INTERNAL(HttpStatus.INTERNAL_SERVER_ERROR, "Internal error");
 
 	private final HttpStatus status;

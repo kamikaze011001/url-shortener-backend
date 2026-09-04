@@ -50,6 +50,10 @@ class LinkController {
 
 	@PostMapping
 	ResponseEntity<LinkResponse> create(@Valid @RequestBody CreateLinkRequest request) {
+		// FR-1.7. At the edge, beside the other question about the caller rather than
+		// inside the use case, which has no business reading the security context.
+		currentOwner.requireVerified();
+
 		var command = new CreateLinkUseCase.Command(
 				currentOwner.id(), request.destination(), request.alias(), request.expiresAt());
 

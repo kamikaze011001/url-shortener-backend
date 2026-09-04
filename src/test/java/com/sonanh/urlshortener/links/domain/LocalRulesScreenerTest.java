@@ -30,7 +30,8 @@ class LocalRulesScreenerTest {
 				"http://localhost:8080",
 				"test-salt",
 				List.of("s.example.com"),
-				new AppProperties.Security("secret", Duration.ofHours(1), false));
+				new AppProperties.Security("secret", Duration.ofHours(1), false),
+				new AppProperties.Mail("no-reply@test.local"));
 	}
 
 	@ParameterizedTest

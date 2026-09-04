@@ -20,10 +20,18 @@ public record AppProperties(
 		String shortBaseUrl,
 		String clickHashSalt,
 		List<String> extraBlockedHosts,
-		Security security
+		Security security,
+		Mail mail
 ) {
 
 	public record Security(String jwtSecret, Duration sessionTtl, boolean cookieSecure) {}
+
+	/**
+	 * @param from the envelope sender. In production this must be an address the mail
+	 *             provider has authorised — an unauthorised sender is accepted by SMTP
+	 *             and then quietly filed as spam, which looks identical to a bug.
+	 */
+	public record Mail(String from) {}
 
 	/** Builds the public Short Link for a code. The one place this string is assembled. */
 	public String shortUrlFor(String code) {

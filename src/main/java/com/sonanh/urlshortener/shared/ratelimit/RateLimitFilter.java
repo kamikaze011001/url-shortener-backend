@@ -43,6 +43,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
 	/** FR-6.4. Far above human clicking, low enough to blunt a scripted sweep. */
 	private static final RateLimitPolicy REDIRECT = RateLimitPolicy.perMinute("redirect-ip", 100);
 
+	/** FR-6.7, per-IP half. The per-address half lives in the use case — see below. */
+	private static final RateLimitPolicy RESET_REQUEST_IP = RateLimitPolicy.perHour("reset-ip", 3);
+
+	/** FR-6.8 — asking for a code. Both windows apply. */
+	private static final RateLimitPolicy CODE_SEND_MINUTE = RateLimitPolicy.perMinute("code-send-owner", 1);
+	private static final RateLimitPolicy CODE_SEND_HOUR = RateLimitPolicy.perHour("code-send-owner-hour", 5);
+
+	/** FR-6.9 — submitting a code, on top of the 5 attempts each code carries. */
+	private static final RateLimitPolicy CODE_SUBMIT = RateLimitPolicy.perHour("code-submit-owner", 10);
+
 	/** The same shape the security chain and the controller use for a Short Code. */
 	private static final Pattern SHORT_CODE_PATH = Pattern.compile("/[A-Za-z0-9_-]{3,32}");
 
@@ -93,6 +103,22 @@ public class RateLimitFilter extends OncePerRequestFilter {
 		else if (method == HttpMethod.GET && SHORT_CODE_PATH.matcher(path).matches()) {
 			checks.add(new Check(REDIRECT, clientKey(request)));
 		}
+		else if (method == HttpMethod.POST && path.equals("/api/v1/auth/forgot-password")) {
+			// Only the per-IP half is here. FR-6.7's second bucket keys on the target
+			// address, which lives in the body — and a filter cannot read a body without
+			// either consuming it or wrapping the request to replay it. It is enforced
+			// in RequestPasswordResetUseCase instead, where the body is already parsed.
+			checks.add(new Check(RESET_REQUEST_IP, clientKey(request)));
+		}
+		else if (method == HttpMethod.POST && path.equals("/api/v1/auth/resend-verification")) {
+			ownerId().ifPresent(owner -> {
+				checks.add(new Check(CODE_SEND_MINUTE, owner.toString()));
+				checks.add(new Check(CODE_SEND_HOUR, owner.toString()));
+			});
+		}
+		else if (method == HttpMethod.POST && path.equals("/api/v1/auth/verify-email")) {
+			ownerId().ifPresent(owner -> checks.add(new Check(CODE_SUBMIT, owner.toString())));
+		}
 
 		return checks;
 	}
@@ -108,8 +134,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
 	private java.util.Optional<UUID> ownerId() {
 		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-		return (authentication != null && authentication.getPrincipal() instanceof UUID id)
-				? java.util.Optional.of(id)
+		return (authentication != null
+				&& authentication.getPrincipal() instanceof com.sonanh.urlshortener.shared.security.AuthenticatedOwner owner)
+				? java.util.Optional.of(owner.id())
 				: java.util.Optional.empty();
 	}
 
